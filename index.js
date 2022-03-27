@@ -33,6 +33,8 @@ let alterStyles = (isBackToTopRendered) => {
 };
 
 window.addEventListener("scroll", () => {
+    const bg = document.getElementById('header__background')
+    bg.style['opacity'] = window.scrollY > 0 ? "0" : "1"
     if (window.scrollY > 700) {
         isBackToTopRendered = true
         alterStyles(isBackToTopRendered)
@@ -115,8 +117,8 @@ function initParticles() {
             y: -0.5 + Math.random() * 0.5,
             speed: 0.1,
             rotation: Math.PI * 0.5,
-            r: (Math.random() - 0.5) * 0.2,
-            r2: (Math.random() - 0.5) * 0.2,
+            r: (Math.random() - 0.5) * 0.3,
+            r2: (Math.random() - 0.5) * 0.3,
             turnrate: 1 + Math.random(),
             scale: 1 + Math.random()
         }
@@ -155,8 +157,9 @@ function render() {
     for (let i = 0; i < count; ++i) {
         const particle = particles[i]
 
-        const ox = tx + (inputEvent ? 0 : particle.r * aspect)
-        const oy = ty + (inputEvent ? 0 : particle.r2)
+        const of = inputEvent ? 0.3 : 1
+        const ox = tx + particle.r * aspect * of
+        const oy = ty + particle.r2 * of
         const dx = particle.x - ox
         const dy = particle.y - oy
         const l = Math.sqrt(dx * dx + dy * dy)
@@ -185,7 +188,7 @@ function render() {
         particle.x += vx * speed * delta * scale * aspect
         particle.y += vy * speed * delta * scale
 
-        const size = 48
+        const size = 64
         dummy.position.set(particle.x * vw - vw * 0.5, particle.y * vh - vh * 0.5, 0)
         dummy.scale.set(size * scale, size * scale, 1)
         dummy.updateMatrix()
