@@ -38,23 +38,26 @@
   <!-- ***** Header ***** -->
 
   <header class="header" role="banner" id="top">
-    <div class="row">
-      <nav class="nav" role="navigation">
-        <ul class="nav__items">
-          <li class="nav__item"><a href="#work" class="nav__link">Work</a></li>
-          <li class="nav__item"><a href="#clients" class="nav__link">Clients</a></li>
-          <li class="nav__item">
-            <a href="#about" class="nav__link">About</a>
-          </li>
-          <li class="nav__item">
-            <a href="#contact" class="nav__link">Contact</a>
-          </li>
-        </ul>
-      </nav>
+    <div class="header__background"></div>
+    <div>
+      <div class="header__particles-container">
+        <div class="header__particles" id="particles-js"></div>
+      </div>
     </div>
-
-    <div class="header__particles-container">
-      <div class="header__particles" id="particles-js" />
+    <div class="nav-container">
+      <div class="row">
+        <nav class="nav" role="navigation">
+          <ul class="nav__items">
+            <li class="nav__item"><a href="#work" class="nav__link">Work</a></li>
+            <li class="nav__item">
+              <a href="#about" class="nav__link">About</a>
+            </li>
+            <li class="nav__item">
+              <a href="#contact" class="nav__link">Contact</a>
+            </li>
+          </ul>
+        </nav>
+      </div>
     </div>
 
     <div class="header__text-box row">
@@ -70,7 +73,7 @@
     </div>
   </header>
 
-  <main role="main">
+  <main class="main" role="main">
 
     <!-- ***** Work ***** -->
 
@@ -83,10 +86,10 @@
 
           <div class="work__box">
             <div class="work__text">
-              <h4>Roland Berger</h4>
-              <h3>Metaverse Plattform</h3>
+              <h3>Virtual Event Platform</h3>
+              <h5>Demodern GmbH | Lead Developer | Roland Berger</h5>
               <p>
-                The virtual event plattform enables visitors from all over the world to come together and also manages to convey a sense of community in the digital space.
+                The platform enables visitors from all over the world to come together in a digital space. We used WebSockets to connect the visitors and convey a sense of community. We represent visitors as little wisps that move from place to place depending on what the participants are doing. The backend was linked to existing infrastructure.
               </p>
               <ul class="work__list">
                 <li>JavaScript</li>
@@ -112,10 +115,10 @@
 
           <div class="work__box">
             <div class="work__text">
-              <h4>Discovery Dock</h4>
-              <h3>Harbor model</h3>
+              <h3>Discovery Dock: Harbor model</h3>
+              <h5>Demodern GmbH | Developer | DuMont Mediengruppe</h5>
               <p>
-                A projection mapping installation that records the shipping traffic in the port of Hamburg and explains it to visitors in an entertaining way.
+                A playful installation that records the ship traffic in the port of Hamburg and explains it to visitors in an entertaining way. I took responsibility for the projection mapping, the distance sensors and guided the team. A custom-tailored GPU particle system simulates hundred-thousands of particles to explain how ebb and flow works.
               </p>
               <ul class="work__list">
                 <li>Unity3D</li>
@@ -140,16 +143,16 @@
 
           <div class="work__box">
             <div class="work__text">
-              <h4>G-Forces Web Management Ltd.</h4>
               <h3>NetDirector® Experience</h3>
+              <h5>VisCircle GmbH | Lead Developer | G-Forces Web Management Ltd.</h5>
               <p>
-                Lorem ipsum dolor sit amet consectetur adipisicing elit. Quod,
-                eius.
+                A real-time vehicle visualization platform that we developed together with GForces. Cars are rendered in the browser in high quality.
               </p>
               <ul class="work__list">
                 <li>TypeScript</li>
                 <li>Angular</li>
                 <li>Blender</li>
+                <li>WebGL</li>
               </ul>
 
               <div class="work__links">
@@ -162,23 +165,28 @@
               <img src="./images/project-3.png" class="work__image" alt="Project 3" />
             </div>
           </div>
-        </div>
-      </div>
-    </section>
 
-    <!-- ***** Clients ***** -->
+          <div class="work__box">
+            <div class="work__text">
+              <h3>Black Prophecy</h3>
+              <h5>Reakktor Media GmbH | Graphics programmer</h5>
+              <p>
+                Black Prophecy was a 3D real-time space combat massively multiplayer online game. The game released on 21 March 2011 as Free-to-play title. As graphics programmer i extended the Gamebryo engine with Cascaded Shadow Mapping, worked closely with the artists on custom shaders and optimized the renderer.
+              </p>
+              <ul class="work__list">
+                <li>C++</li>
+                <li>DirectX 9 🙈</li>
+              </ul>
 
-    <section class="client" id="clients">
-      <div class="row">
-        <h2>Clients</h2>
-        <div class="client__logos">
-          <!-- Add logos of the clients or companies you'have worked with. -->
-          <img src="./images/ronjones.png" class="client__logo" alt="Company 2" />
-          <img src="./images/goldengrid.png" class="client__logo" alt="Company 3" />
-          <img src="./images/bullseye.png" class="client__logo" alt="Company 1" />
-          <img src="./images/mighty-furnitures.png" class="client__logo" alt="Company 1" />
-          <img src="./images/fastlane.png" class="client__logo" alt="Company 3" />
-          <img src="./images/chippy.png" class="client__logo" alt="Company 1" />
+            </div>
+            <div class="work__image-box">
+              <img src="./images/project-5.jpg" class="work__image" alt="Project 5" />
+              <div class="work__image-box__small-container">
+                <img src="./images/project-5a.jpg" class="work__image small" alt="Project 5" />
+                <img src="./images/project-5b.jpg" class="work__image small" alt="Project 5" />
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -192,7 +200,7 @@
           <div class="about__text">
             <!-- Replace the below paragraph with info about yourself -->
             <p>
-              Dedicated developer with hands-on mentality and passion for computer graphics.
+              Dedicated developer with hands-on mentality and passion for computer graphics. Fell in love with the full stack.
             </p>
             <!-- Provide a link to your resume -->
             <a href="https://www.linkedin.com/in/matthiasmarkowski" class="btn">My Resume</a>
@@ -222,7 +230,7 @@
           me is via an email.
         </p>
         <!-- Replace the email with yours -->
-        <a href="mailto:you@example.com" class="btn">you@example.com</a>
+        <a href="mailto:matthias@markowski-web.de" class="btn">matthias@markowski-web.de</a>
       </div>
     </div>
   </section>
@@ -257,7 +265,7 @@
 
       <!-- If you give me some credit by keeping the below paragraph, will be huge for me 😊 Thanks. -->
       <p>
-        &copy; 2020 - Template designed & developed by <a href="https://nisar.dev" class="link">Nisar</a>.
+        &copy; 2020 - Template designed & developed by <a href="https://nisar.dev" class="link">Nisar</a>. Enriched with ❤️ by Matthias Markowski.
       </p>
       <div class="footer__github-buttons">
         <iframe
@@ -271,7 +279,7 @@
   <a href="#top" class="back-to-top" title="Back to Top">
     <img src="./images/arrow-up.svg" alt="Back to Top" class="back-to-top__image"/>
   </a>
-  <script src="./particles.min.js"></script>
+  <script src="./three.min.js"></script>
   <script src="./index.js"></script>
 </body>
 
