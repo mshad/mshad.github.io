@@ -21,50 +21,50 @@ const handleMouseDownOnce = () => {
 
 window.addEventListener('keydown', handleFirstTab)
 
-const backToTopButton = document.querySelector(".back-to-top");
-let isBackToTopRendered = false;
+const backToTopButton = document.querySelector(".back-to-top")
+let isBackToTopRendered = false
 
 let alterStyles = (isBackToTopRendered) => {
-    backToTopButton.style.visibility = isBackToTopRendered ? "visible" : "hidden";
-    backToTopButton.style.opacity = isBackToTopRendered ? 1 : 0;
+    backToTopButton.style.visibility = isBackToTopRendered ? "visible" : "hidden"
+    backToTopButton.style.opacity = isBackToTopRendered ? 1 : 0
     backToTopButton.style.transform = isBackToTopRendered
         ? "scale(1)"
-        : "scale(0)";
+        : "scale(0)"
 };
 
 window.addEventListener("scroll", () => {
     if (window.scrollY > 700) {
-        isBackToTopRendered = true;
-        alterStyles(isBackToTopRendered);
+        isBackToTopRendered = true
+        alterStyles(isBackToTopRendered)
     } else {
-        isBackToTopRendered = false;
-        alterStyles(isBackToTopRendered);
+        isBackToTopRendered = false
+        alterStyles(isBackToTopRendered)
     }
-});
+})
 
-const count = 64;
+const count = 64
 
-const clock = new THREE.Clock();
-const dummy = new THREE.Object3D();
+const clock = new THREE.Clock()
+const dummy = new THREE.Object3D()
 const particles = []
 
-let camera, scene, renderer, instancedMesh, inputEvent;
+let camera, scene, renderer, instancedMesh, inputEvent
 
-init();
-initParticles();
-animate();
+init()
+initParticles()
+animate()
 
 function init() {
-    const width = window.innerWidth;
-    const height = window.innerHeight;
+    const width = window.innerWidth
+    const height = window.innerHeight
 
-    camera = new THREE.OrthographicCamera(width / -2, width / 2, height / 2, height / -2, 1, 1000);
-    camera.position.z = 1;
+    camera = new THREE.OrthographicCamera(width / -2, width / 2, height / 2, height / -2, 1, 1000)
+    camera.position.z = 1
 
-    scene = new THREE.Scene();
-    scene.add(camera);
+    scene = new THREE.Scene()
+    scene.add(camera)
 
-    const map = new THREE.TextureLoader().load('images/star.png');
+    const map = new THREE.TextureLoader().load('images/star.png')
     const material = new THREE.MeshStandardMaterial({
         emissive: new THREE.Color(1, 1, 1),
         map: map,
@@ -72,40 +72,40 @@ function init() {
         transparent: true,
         blending: THREE.NormalBlending,
         opacity: 1.0
-    });
-    const geometry = new THREE.PlaneGeometry(1, 1, 1, 1);
+    })
+    const geometry = new THREE.PlaneGeometry(1, 1, 1, 1)
 
     instancedMesh = new THREE.InstancedMesh(geometry, material, count)
     instancedMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
 
-    scene.add(instancedMesh);
+    scene.add(instancedMesh)
 
-    renderer = new THREE.WebGLRenderer({antialias: true, alpha: true});
+    renderer = new THREE.WebGLRenderer({antialias: true, alpha: true})
     renderer.setPixelRatio(window.devicePixelRatio);
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setSize(window.innerWidth, window.innerHeight)
 
-    const container = document.getElementById('particles');
-    container.appendChild(renderer.domElement);
+    const container = document.getElementById('particles')
+    container.appendChild(renderer.domElement)
 
-    let timeoutId;
+    let timeoutId
     const handleInputEvent = (timeout) => {
-        timeoutId && clearTimeout(timeoutId);
+        timeoutId && clearTimeout(timeoutId)
         timeoutId = setTimeout(() => {
-            inputEvent = null;
+            inputEvent = null
         }, timeout)
     }
 
     window.addEventListener('mousemove', e => {
-        inputEvent = {clientX: e.clientX, clientY: e.clientY};
-        handleInputEvent(500);
+        inputEvent = {clientX: e.clientX, clientY: e.clientY}
+        handleInputEvent(500)
     })
 
     window.addEventListener('touchmove', e => {
-        inputEvent = {clientX: e.touches[0].clientX, clientY: e.touches[0].clientY};
-        handleInputEvent(1000);
+        inputEvent = {clientX: e.touches[0].clientX, clientY: e.touches[0].clientY}
+        handleInputEvent(1000)
     })
 
-    window.addEventListener('resize', onWindowResize);
+    window.addEventListener('resize', onWindowResize)
 }
 
 function initParticles() {
@@ -125,31 +125,31 @@ function initParticles() {
 }
 
 function onWindowResize() {
-    const width = window.innerWidth;
-    const height = window.innerHeight;
+    const width = window.innerWidth
+    const height = window.innerHeight
 
-    camera.left = width / -2;
-    camera.right = width / 2;
-    camera.top = height / 2;
-    camera.bottom = height / -2;
+    camera.left = width / -2
+    camera.right = width / 2
+    camera.top = height / 2
+    camera.bottom = height / -2
 
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    camera.updateProjectionMatrix()
+    renderer.setSize(window.innerWidth, window.innerHeight)
 }
 
 function animate() {
-    requestAnimationFrame(animate);
-    render();
+    requestAnimationFrame(animate)
+    render()
 }
 
 function render() {
-    const delta = Math.min(clock.getDelta(), 1 / 30.0);
+    const delta = Math.min(clock.getDelta(), 1 / 30.0)
     const vw = window.innerWidth
     const vh = window.innerHeight
     const aspect = vh / vw
     const t = clock.getElapsedTime()
 
-    const tx = inputEvent ? inputEvent.clientX / vw : 0.5 + Math.sin(t * 0.881);
+    const tx = inputEvent ? inputEvent.clientX / vw : 0.5 + Math.sin(t * 0.881)
     const ty = inputEvent ? 1.0 - inputEvent.clientY / vh : 0.5 + Math.cos(t * 0.487) * 0.75
 
     for (let i = 0; i < count; ++i) {
@@ -157,8 +157,8 @@ function render() {
 
         const ox = tx + (inputEvent ? 0 : particle.r * aspect)
         const oy = ty + (inputEvent ? 0 : particle.r2)
-        const dx = particle.x - ox;
-        const dy = particle.y - oy;
+        const dx = particle.x - ox
+        const dy = particle.y - oy
         const l = Math.sqrt(dx * dx + dy * dy)
         const inv = 1 / l
         const nx = dx * inv
@@ -174,9 +174,9 @@ function render() {
         const dot = r90x * nx + r90y * ny
 
         if (dot > 0) {
-            particle.rotation += turn;
+            particle.rotation += turn
         } else {
-            particle.rotation -= turn;
+            particle.rotation -= turn
         }
 
         const speed = 0.15 + (1 + Math.cos(t * 0.4)) * 0.1
@@ -191,7 +191,7 @@ function render() {
         dummy.updateMatrix()
         instancedMesh.setMatrixAt(i, dummy.matrix)
     }
-    instancedMesh.instanceMatrix.needsUpdate = true;
+    instancedMesh.instanceMatrix.needsUpdate = true
 
-    renderer.render(scene, camera);
+    renderer.render(scene, camera)
 }
