@@ -140,6 +140,12 @@ h4 {
     }
 }
 
+@media(max-width: 500px) {
+    .heading-primary {
+        padding: 0 var(--gutter-small);
+    }
+}
+
 h2 {
     font-size: var(--font-size-large);
     margin-bottom: var(--gutter-medium);
@@ -427,6 +433,10 @@ body:not(.user-is-tabbing) a:focus {
 }
 
 @media(max-width: 500px) {
+    .header__text-box {
+        padding: 0;
+    }
+
     .header {
         text-align: center;
     }
