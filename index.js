@@ -48,27 +48,13 @@ const clock = new THREE.Clock();
 const dummy = new THREE.Object3D();
 const particles = []
 
-let camera, scene, renderer, instancedMesh;
+let camera, scene, renderer, instancedMesh, inputEvent;
 
 init();
+initParticles();
 animate();
 
 function init() {
-    for (let i = 0; i < count; ++i) {
-        const particle = {
-            x: -0.5 + Math.random(),
-            y: -0.5 + Math.random() * 0.5,
-            speed: 0.1,
-            rotation: Math.PI * 0.5,
-            r: Math.random() * Math.PI,
-            r2: Math.random() * Math.PI,
-            r3: Math.random() * 0.05,
-            r4: Math.random() * 0.05,
-            scale: 1 + Math.random()
-        }
-        particles.push(particle)
-    }
-
     const width = window.innerWidth;
     const height = window.innerHeight;
 
@@ -98,10 +84,44 @@ function init() {
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(window.innerWidth, window.innerHeight);
 
-    const container = document.getElementById('particles-js');
+    const container = document.getElementById('particles');
     container.appendChild(renderer.domElement);
 
+    let timeoutId;
+    const handleInputEvent = (timeout) => {
+        timeoutId && clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => {
+            inputEvent = null;
+        }, timeout)
+    }
+
+    window.addEventListener('mousemove', e => {
+        inputEvent = {clientX: e.clientX, clientY: e.clientY};
+        handleInputEvent(500);
+    })
+
+    window.addEventListener('touchmove', e => {
+        inputEvent = {clientX: e.touches[0].clientX, clientY: e.touches[0].clientY};
+        handleInputEvent(1000);
+    })
+
     window.addEventListener('resize', onWindowResize);
+}
+
+function initParticles() {
+    for (let i = 0; i < count; ++i) {
+        const particle = {
+            x: -0.5 + Math.random(),
+            y: -0.5 + Math.random() * 0.5,
+            speed: 0.1,
+            rotation: Math.PI * 0.5,
+            r: (Math.random() - 0.5) * 0.2,
+            r2: (Math.random() - 0.5) * 0.2,
+            turnrate: 1 + Math.random(),
+            scale: 1 + Math.random()
+        }
+        particles.push(particle)
+    }
 }
 
 function onWindowResize() {
@@ -128,43 +148,46 @@ function render() {
     const vh = window.innerHeight
     const aspect = vh / vw
     const t = clock.getElapsedTime()
-    const tx = 0.5 + Math.sin(t * 0.881)
-    const ty = 0.5 + Math.cos(t * 0.487) * 0.75
+
+    const tx = inputEvent ? inputEvent.clientX / vw : 0.5 + Math.sin(t * 0.881);
+    const ty = inputEvent ? 1.0 - inputEvent.clientY / vh : 0.5 + Math.cos(t * 0.487) * 0.75
+
     for (let i = 0; i < count; ++i) {
         const particle = particles[i]
 
-        const dx = particle.x - (tx + Math.sin(particle.r + t * particle.r3 * t) * 0.3 * aspect)
-        const dy = particle.y - (ty + Math.sin(particle.r2 + t * particle.r4 * t) * 0.3)
+        const ox = tx + (inputEvent ? 0 : particle.r * aspect)
+        const oy = ty + (inputEvent ? 0 : particle.r2)
+        const dx = particle.x - ox;
+        const dy = particle.y - oy;
         const l = Math.sqrt(dx * dx + dy * dy)
         const inv = 1 / l
         const nx = dx * inv
         const ny = dy * inv
-
         const vx = Math.cos(particle.rotation)
         const vy = Math.sin(particle.rotation)
-
         const r90x = vy
         const r90y = vx * -1
 
-        const d = (r90x * nx + r90y * ny)
+        const panic = inputEvent ? Math.min((l * l) * 32.0, 1.0) : Math.min(l * l - 0.2, 1.0)
+        const turnrate = inputEvent ? 3.0 : 0.75
+        const turn = particle.turnrate * turnrate * panic * delta
+        const dot = r90x * nx + r90y * ny
 
-        const panic = Math.min(l - 0.2, 1.0)
-
-        if (d > 0) {
-            particle.rotation += 1.5 * panic * delta;
+        if (dot > 0) {
+            particle.rotation += turn;
         } else {
-            particle.rotation -= 1.5 * panic * delta;
+            particle.rotation -= turn;
         }
 
-        const s = particle.scale
-
         const speed = 0.15 + (1 + Math.cos(t * 0.4)) * 0.1
+        const scale = particle.scale
 
-        particle.x += vx * speed * delta * s * aspect
-        particle.y += vy * speed * delta * s
+        particle.x += vx * speed * delta * scale * aspect
+        particle.y += vy * speed * delta * scale
 
+        const size = 48
         dummy.position.set(particle.x * vw - vw * 0.5, particle.y * vh - vh * 0.5, 0)
-        dummy.scale.set(64 * s, 64 * s, 1)
+        dummy.scale.set(size * scale, size * scale, 1)
         dummy.updateMatrix()
         instancedMesh.setMatrixAt(i, dummy.matrix)
     }
