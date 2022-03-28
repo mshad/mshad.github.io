@@ -32,8 +32,9 @@ let alterStyles = (isBackToTopRendered) => {
         : "scale(0)"
 };
 
+const bg = document.getElementById('header__background')
+
 window.addEventListener("scroll", () => {
-    const bg = document.getElementById('header__background')
     bg.style['opacity'] = window.scrollY > 0 ? "0" : "1"
     if (window.scrollY > 700) {
         isBackToTopRendered = true
@@ -43,6 +44,10 @@ window.addEventListener("scroll", () => {
         alterStyles(isBackToTopRendered)
     }
 })
+
+bg.style['opacity'] = "0" // in case css is not yet loaded
+bg.style['transition'] = "opacity 1s"
+bg.style['opacity'] = "1"
 
 const count = 64
 
@@ -104,7 +109,7 @@ function init() {
 
     window.addEventListener('touchmove', e => {
         inputEvent = {clientX: e.touches[0].clientX, clientY: e.touches[0].clientY}
-        handleInputEvent(1000)
+        handleInputEvent(2500)
     })
 
     window.addEventListener('resize', onWindowResize)
