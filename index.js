@@ -54,10 +54,10 @@ anime.timeline({loop: false})
         targets: '.word',
         scale: [2, 1],
         opacity: [0, 1],
-        translateY: ["100%", 0],
-        easing: 'easeOutQuad',
-        duration: 600,
-        delay: (el, i) => 300 * i
+        translateY: ["50px", 0],
+        easing: 'easeOutCubic',
+        duration: 500,
+        delay: (el, i) => 250 * i
     })
 
 const count = 64
