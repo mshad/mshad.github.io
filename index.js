@@ -32,7 +32,7 @@ let alterStyles = (isBackToTopRendered) => {
         : "scale(0)"
 };
 
-const bg = document.getElementById('header__background')
+const bg = document.getElementById('background')
 
 window.addEventListener("scroll", () => {
     bg.style['opacity'] = window.scrollY > 0 ? "0" : "1"
@@ -48,6 +48,17 @@ window.addEventListener("scroll", () => {
 bg.style['opacity'] = "0" // in case css is not yet loaded
 bg.style['transition'] = "opacity 1s"
 bg.style['opacity'] = "1"
+
+anime.timeline({loop: false})
+    .add({
+        targets: '.word',
+        scale: [2, 1],
+        opacity: [0, 1],
+        translateY: ["100%", 0],
+        easing: 'easeOutQuad',
+        duration: 600,
+        delay: (el, i) => 300 * i
+    })
 
 const count = 64
 

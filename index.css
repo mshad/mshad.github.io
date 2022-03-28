@@ -421,9 +421,9 @@ body:not(.user-is-tabbing) a:focus {
     position: relative;
     width: 100%;
     height: 100vh;
-    background: linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, .7) 50%, rgba(0, 0, 0, .9) 70%, rgba(0, 0, 0, 1) 100%), url('./images/header.jpg') no-repeat;
+    background: linear-gradient(rgba(0, 0, 0, .2), rgba(0, 0, 0, .4) 30%, rgba(0, 0, 0, .9) 70%, rgba(0, 0, 0, 1) 100%), url('./images/header.jpg') no-repeat;
     background-size: cover;
-    background-position: right 25%;
+    background-position: right 27%;
     z-index: -3;
     opacity: 0;
 }
@@ -470,9 +470,19 @@ body:not(.user-is-tabbing) a:focus {
         text-align: center;
     }
 
+    .header__text {
+        width: 100%;
+    }
+
     .header__text p {
         transform: scale(.8);
     }
+}
+
+.word {
+    display: inline-block;
+    opacity: 0;
+    transform: translateY(300px);
 }
 
 .main {
@@ -555,32 +565,6 @@ body:not(.user-is-tabbing) a:focus {
 @media (max-width: 900px) {
     .work__code {
         height: 4rem;
-    }
-}
-
-/* --------------------------------------- */
-/* ----- Clients ----- */
-/* --------------------------------------- */
-
-.client__logos {
-    display: flex;
-    justify-content: space-between;
-    filter: invert(100%) grayscale(100%) opacity(.8);
-}
-
-.client__logo {
-    height: 6.5rem;
-    max-width: 18rem;
-}
-
-@media (max-width: 1240px) {
-    .client__logos {
-        overflow-x: scroll;
-        padding: var(--gutter-normal);
-    }
-
-    .client__logo:not(:last-of-type) {
-        margin-right: var(--gutter-medium);
     }
 }
 

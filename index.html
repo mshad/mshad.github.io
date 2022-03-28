@@ -38,7 +38,7 @@
   <!-- ***** Header ***** -->
 
   <header id="header" class="header" role="banner" id="top">
-    <div id="header__background" class="header__background"></div>
+    <div id="background" class="header__background"></div>
     <div>
       <div class="header__particles-container">
         <div class="header__particles" id="particles"></div>
@@ -62,14 +62,12 @@
 
     <div class="header__text-box row">
       <div class="header__text">
-          <h1 class="heading-primary">
-            <span class="word">Matthias</span> <span class="word">Markowski</span>
-          </h1>
-          <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js"></script>
-          <!-- Put a small paragraph about yourself -->
-          <p>Creative Engineer from⚓Hamburg, Germany.</p>
-          <a href="#contact" class="btn btn--pink">About Me</a>
-        </div>
+        <h1 class="heading-primary">
+          <span class="word">Matthias Markowski</span>
+        </h1>
+        <!-- Put a small paragraph about yourself -->
+        <p><span class="word">Creative Engineer</span> <span class="word">⚓</span> <span class="word">Hamburg, Germany</span></p>
+        <a href="#about" class="btn btn--pink word">About Me</a>
       </div>
     </div>
   </header>
@@ -147,7 +145,7 @@
               <h3>NetDirector® Experience</h3>
               <h5>VisCircle GmbH | Lead Developer | G-Forces Web Management Ltd.</h5>
               <p>
-                A real-time vehicle visualization platform that we developed together with GForces. Cars are rendered in the browser in high quality.
+                A real-time vehicle visualization platform that we developed together with GForces. You can turn on the lights, open the doors and sit behind the wheel. The 3D models of the cars go through an automated pipeline that applies materials and saves them in the right format for the web.
               </p>
               <ul class="work__list">
                 <li>TypeScript</li>
@@ -204,9 +202,7 @@
         <div class="about__content">
           <div class="about__text">
             <!-- Replace the below paragraph with info about yourself -->
-            <p>
-              Born in <a href="https://www.google.com/maps?q=Wroc%C5%82aw">Wrocław</a>, Poland. My first computer could display 4 different colors with it's CGA graphics card. It only had an internal pc speaker and was equipped with a gigantic 10 MB hard drive. I started programming in the middle school and obviously am still a nerd 🤓. When not in front of a computer, i like to hike and hunt treasures on flee markets.
-            </p>
+            <p>Hi! My name ist Matthias, I was born on a <a href="https://weatherspark.com/h/d/82660/1986/3/10/Historical-Weather-on-Monday-March-10-1986-in-Wroc%C5%82aw-Poland#Figures-Temperature">mild winter</a> day in Wrocław, Poland. My first computer was able to display and incredible number of 4 colors in CGA mode. It was equipped with a generously large 10 MB hard drive. I started programming in the middle school and obviously am still a nerd. 🤓</p><p>Besides beeing a specialist for computer graphics, I'm also a network and backend developer and gathered experience with various game engines. I'm always curious to explore new grounds and can move from quick prototype to maintainable code as needed.</p><p>When not in front of a computer, i like to hike and hunt treasures on flee markets. Or I try out new recipes in the kitchen.</p>
           </div>
 
           <div class="about__photo-container">
@@ -222,18 +218,13 @@
 
   <section class="contact" id="contact">
     <div class="row">
-      <h2>Get in Touch</h2>
+      <h2>Contact</h2>
       <div class="contact__info">
         <p>
-          Are you looking for a fast-performing and user-friendly website to
-          represent your product or business? or looking for any kind of
-          consultation? or want to ask questions? or have some advice for me
-          or just want to say "Hi 👋" in any case feel free to Let me know. I
-          will do my best to respond back. 😊 The quickest way to reach out to
-          me is via an email.
+          Do you have any questions? I'll be happy to answer them. Feel free to to contact me, if you want to chat a bit or to get to know me! E-mail is the best way to get in touch with me.
         </p>
         <!-- Replace the email with yours -->
-        <a href="mailto:matthias@markowski-web.de" class="btn">matthias@markowski-web.de</a>
+        <a href="mailto:matthias@markowski-web.de" class="btn">E-Mail</a>
       </div>
     </div>
   </section>
@@ -273,6 +264,7 @@
     <img src="./images/arrow-up.svg" alt="Back to Top" class="back-to-top__image"/>
   </a>
   <script src="./three.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js"></script>
   <script src="./index.js"></script>
 </body>
 
