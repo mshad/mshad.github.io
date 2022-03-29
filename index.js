@@ -32,10 +32,7 @@ let alterStyles = (isBackToTopRendered) => {
         : "scale(0)"
 };
 
-const bg = document.getElementById('background')
-
 window.addEventListener("scroll", () => {
-    bg.style['opacity'] = window.scrollY > 0 ? "0" : "1"
     if (window.scrollY > 700) {
         isBackToTopRendered = true
         alterStyles(isBackToTopRendered)
@@ -45,20 +42,32 @@ window.addEventListener("scroll", () => {
     }
 })
 
-bg.style['opacity'] = "0" // in case css is not yet loaded
-bg.style['transition'] = "opacity 1s"
-bg.style['opacity'] = "1"
+const bg = document.getElementById('background')
 
-anime.timeline({loop: false})
-    .add({
-        targets: '.word',
-        scale: [2, 1],
-        opacity: [0, 1],
-        translateY: ["50px", 0],
-        easing: 'easeOutCubic',
-        duration: 500,
-        delay: (el, i) => 250 * i
+bg.style['opacity'] = "0" // in case css is not yet loaded
+window.onload = () => {
+    window.addEventListener("scroll", () => {
+        bg.style['opacity'] = window.scrollY > 0 ? "0" : "1"
     })
+
+    bg.style['transition'] = "opacity 1s"
+    bg.style['opacity'] = "1"
+
+    init()
+    initParticles()
+    animate()
+
+    anime.timeline({loop: false})
+        .add({
+            targets: '.word',
+            scale: [2, 1],
+            opacity: [0, 1],
+            translateY: ["50px", 0],
+            easing: 'easeOutCubic',
+            duration: 600,
+            delay: (el, i) => 1500 + 300 * i
+        })
+}
 
 const count = 64
 
@@ -67,10 +76,6 @@ const dummy = new THREE.Object3D()
 const particles = []
 
 let camera, scene, renderer, instancedMesh, inputEvent
-
-init()
-initParticles()
-animate()
 
 function init() {
     const width = window.innerWidth
