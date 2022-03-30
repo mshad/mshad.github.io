@@ -269,7 +269,7 @@ window.onload = function () {
             translateY: ["50px", 0],
             easing: 'easeOutCubic',
             duration: 600,
-            delay: (el, i) => 1500 + 300 * i
+            delay: (el, i) => 750 + 300 * i
         })
 }
 
