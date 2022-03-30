@@ -428,17 +428,13 @@ body:not(.user-is-tabbing) a:focus {
     position: relative;
     width: 100%;
     height: 100vh;
-    background: linear-gradient(rgba(0, 0, 0, .2), rgba(0, 0, 0, .4) 30%, rgba(0, 0, 0, .9) 70%, rgba(0, 0, 0, 1) 100%), url('./images/header.jpg') no-repeat;
-    background-size: cover;
-    background-position: right center;
-    z-index: -3;
-    opacity: 0;
 }
 
 .header {
     height: 100vh;
     font-size: var(--font-size-normal);
     z-index: -1;
+    background: linear-gradient(rgba(0, 0, 0, 0.0) 50%, rgba(0, 0, 0, 0.5) 100%);
 }
 
 .header__particles-container {
@@ -497,7 +493,7 @@ body:not(.user-is-tabbing) a:focus {
 /* --------------------------------------- */
 
 .main {
-    background: linear-gradient(rgba(0, 0, 0, 0.0), rgba(0, 0, 0, 0.7) 10%, rgba(0, 0, 0, 0.7) 100%);
+    background: rgba(0, 0, 0, 0.5);
 }
 
 /* --------------------------------------- */
@@ -620,7 +616,7 @@ body:not(.user-is-tabbing) a:focus {
 /* --------------------------------------- */
 
 .contact {
-    background: linear-gradient(rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0));
+    background: rgba(0, 0, 0, 0.5);
 }
 
 .contact__info {
@@ -634,6 +630,7 @@ body:not(.user-is-tabbing) a:focus {
 .footer {
     text-align: center;
     padding: var(--gutter-medium) 0 var(--gutter-normal);
+    background: linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.0));
 }
 
 .footer__social-links {
