@@ -39,7 +39,6 @@
     --white: #f0e9f2;
     --white-1: #e5e5e6da;
 
-
     --container-max-width: 1180px;
     --container-normal-width: 800px;
     --container-small-width: 500px;
@@ -51,6 +50,8 @@
     --gutter-small: 2rem;
 
     --border-light: 1px solid rgb(36, 35, 35);
+
+    --background-opacity: 0.7;
 }
 
 html {
@@ -434,7 +435,7 @@ body:not(.user-is-tabbing) a:focus {
     height: 100vh;
     font-size: var(--font-size-normal);
     z-index: -1;
-    background: linear-gradient(rgba(0, 0, 0, 0.0) 50%, rgba(0, 0, 0, 0.5) 100%);
+    background: linear-gradient(rgba(0, 0, 0, 0.0) 50%, rgba(0, 0, 0, var(--background-opacity)) 100%);
 }
 
 .header__particles-container {
@@ -520,7 +521,7 @@ body:not(.user-is-tabbing) a:focus {
 /* --------------------------------------- */
 
 .main {
-    background: rgba(0, 0, 0, 0.5);
+    background: rgba(0, 0, 0, var(--background-opacity));
 }
 
 /* --------------------------------------- */
@@ -643,7 +644,7 @@ body:not(.user-is-tabbing) a:focus {
 /* --------------------------------------- */
 
 .contact {
-    background: rgba(0, 0, 0, 0.5);
+    background: rgba(0, 0, 0, var(--background-opacity));
 }
 
 .contact__info {
@@ -657,7 +658,7 @@ body:not(.user-is-tabbing) a:focus {
 .footer {
     text-align: center;
     padding: var(--gutter-medium) 0 var(--gutter-normal);
-    background: linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.0));
+    background: linear-gradient(rgba(0, 0, 0, var(--background-opacity)), rgba(0, 0, 0, 0.0));
 }
 
 .footer__social-links {
