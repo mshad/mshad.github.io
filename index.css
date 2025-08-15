@@ -482,6 +482,33 @@ body:not(.user-is-tabbing) a:focus {
     }
 }
 
+.header__arrow.hidden {
+    opacity: 0;
+}
+
+.header__arrow {
+    position: absolute;
+    left: 50%;
+    bottom: 2rem;
+    transform: translateX(-50%);
+    font-size: var(--font-size-medium-1);
+    color: var(--pink);
+    animation: arrowBounce 2s infinite ease-in-out;
+    transition: opacity 0.4s ease, transform 0.4s ease;
+}
+
+@keyframes arrowBounce {
+    0%, 20%, 50%, 80%, 100% {
+        transform: translateX(-50%) translateY(0);
+    }
+    40% {
+        transform: translateX(-50%) translateY(16px);
+    }
+    60% {
+        transform: translateX(-50%) translateY(8px);
+    }
+}
+
 .word {
     display: inline-block;
     transform: translateY(50px);

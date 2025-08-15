@@ -271,6 +271,19 @@ window.onload = function () {
             duration: 600,
             delay: (el, i) => 750 + 300 * i
         })
+
+    const arrow = document.querySelector('.header__arrow');
+    const updateArrow = () => {
+        if (window.scrollY > 0) {
+            arrow.classList.add('hidden');
+        } else {
+            arrow.classList.remove('hidden');
+        }
+    }
+    updateArrow()
+    window.addEventListener('scroll', () => {
+        updateArrow()
+    });
 }
 
 function run() {
