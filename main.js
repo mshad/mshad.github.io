@@ -1,0 +1,1544 @@
+/* ============================================================
+   Matthias Markowski — Portfolio
+   Background: Three.js aurora + GPU fluid solver (stable fluids)
+   The mouse stirs the fluid; particles ride the velocity field.
+   ============================================================ */
+
+(function background3D() {
+  const canvas = document.getElementById("bg-canvas");
+
+  if (!window.THREE) {
+    canvas.style.background =
+      "radial-gradient(ellipse at 50% 120%, #0e2233 0%, #070b12 70%)";
+    return;
+  }
+
+  // With reduced motion preferred (e.g. Windows animation effects off) we
+  // don't freeze the centerpiece — we run it calmer and slower instead.
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const motionScale = reducedMotion ? 0.4 : 1;
+
+  /* ============================================================
+     CONFIG — every tunable dial in one place
+     ============================================================ */
+
+  const CONFIG = {
+    // --- fluid solver ---
+    sim: {
+      simRes: 128,       // velocity / pressure grid (short side)
+      dyeRes: 256,       // dye wisps — high res for fine filaments (short side)
+      readRes: 64,       // CPU readback grid for particle advection (short side)
+      speed: 1.5,       // timestep multiplier — slow, deliberate
+      pressureIterations: 20,     // Jacobi solve quality (incompressibility)
+      viscosityIterations: 3,     // velocity diffusion passes: the "oil paint" thickness
+      viscosity: 0.5,             // drag per diffusion pass
+      vorticity: 8,               // low: paint smears laminar, it doesn't whirl
+      pressureDecay: 0.8,         // pressure kept between frames (0..1)
+      velocityDissipation: 0.999, // momentum kept per step — lower dies faster
+      dyeDissipation: 0.985,      // pigment kept per step — how fast paint dissolves
+      velEncodeMax: 600,          // texels/s mapped to the byte readback
+    },
+
+    // --- warm-up: the field opens mid-motion instead of blank ---
+    warmup: {
+      span: 6,      // seconds of stirrer history reconstructed at load
+      interval: 0.2,// seconds between history splats along each path
+      steps: 48,    // solver steps to smear the seeds into coherent paint
+    },
+
+    // --- intro: the stirrers open tracing a heart, then wander off ---
+    intro: {
+      cx: 0.32,    // center of the heart (uv, y up)
+      cy: 0.64,
+      size: 0.22,  // scale — roughly half the heart's height in uv
+      trace: 0.01, // how fast each stirrer crawls along the outline (loops/s)
+      hold: 5,     // seconds the heart is held before the swarm departs
+      blend: 5,    // seconds to ease from the outline into wandering
+      force: 0.2,  // stir velocity multiplier on the heart — all stirrers circle
+                   // in step there, so full force whips up one big vortex
+      ink: 0.2,    // pigment multiplier on the heart — the slow trace re-inks
+                   // the same spots over and over, full dye pools into blobs
+      stagger: 0.25, // seconds between consecutive stirrers leaving the heart —
+                     // the swarm disperses one by one instead of all at once
+      ghosts: 40,    // extra intro-only stirrers interleaved between the real
+                     // ones — they thicken the heart outline, then fade out
+                     // instead of swarming off
+    },
+
+    // --- paint look: surface relief + fake lighting ---
+    paint: {
+      // ramp from darkest (wisp edges) to brightest (dense core); paste hex
+      // stops from a gradient tool (e.g. colordesigner.io) — any count works
+      rampColors: [
+        "#292f56", "#1e4572", "#005c8b", "#007498", "#008ba0",
+        "#00a3a4", "#00bca1", "#00d493", "#69e882", "#acfa70",
+      ],
+      densityCurve: 1.6,      // how fast dye density saturates the ramp
+      rampFadeIn: 0.35,       // density range over which dye eases in from black
+      heightCompression: 1.4, // thick paint plateaus instead of spiking
+      bump: 7.5,              // relief strength of the paint surface
+      parallax: 0.008,        // thick paint shifts its color lookup slightly
+      diffuseBase: 0.38,      // ink brightness in shadow
+      diffuseGain: 0.85,      // ink brightness added by the key light
+      specStrength: 0.3,      // gloss on the ridges
+      specPower: 40,          // gloss tightness — higher = smaller highlight
+      valleyShadow: 0.15,     // how far valleys sink into shadow
+      exposure: 1.35,         // filmic knee — overlapping ink burns, never clips
+    },
+
+    // --- pigment color cycle ---
+    ink: {
+      aqua: [0.06, 0.3, 0.28],
+      violet: [0.2, 0.1, 0.34],
+      cycleSpeed: 0.07, // slow, coherent drift between the two inks
+      whiteLift: 0.03,  // small white lift so dense cores burn bright
+    },
+
+    // --- mouse brush: a stirrer that chases the cursor ---
+    mouse: {
+      follow: 2,       // chase rate (1/s) — lower = lazier, trails further behind
+      maxSpeed: 1.4,   // uv/s cap on the brush — a fast flick can't blast the paint
+      orbit: 0.02,     // wobble radius around a resting cursor — keeps dye flowing
+      orbitSpeed: 0.6, // tempo of that wobble — lower = slower circling
+      force: 40,       // brush velocity -> fluid velocity (same scale as idle)
+      radius: 0.0005,  // same tight nib as the idle stirrers
+      inkBase: 0.1,    // pigment from a slow drag
+      inkGain: 0.14,   // extra pigment from a brisk stroke
+    },
+
+    // --- idle stirrers: keep the paint alive without input ---
+    idle: {
+      force: 30,
+      radius: 0.0005,
+      inkBase: 0.1,
+      inkGain: 0.14,
+      // six wandering lissajous points: #1 biased right of the hero text,
+      // the rest spread across the whole canvas — differing frequencies and
+      // phases keep them from ever moving in sync
+      stirrers: [
+        { cx: 0.64, cy: 0.55, ax: 0.24, ay: 0.26, ax2: 0.06, ay2: 0.08, fx: 0.31, fx2: 0.117, fy: 0.23, fy2: 0.083, phase: 0.0 },
+        { cx: 0.80, cy: 0.30, ax: 0.15, ay: 0.22, ax2: 0.05, ay2: 0.07, fx: 0.35, fx2: 0.127, fy: 0.26, fy2: 0.091, phase: 1.3 },
+        { cx: 0.68, cy: 0.12, ax: 0.13, ay: 0.11, ax2: 0.06, ay2: 0.04, fx: 0.19, fx2: 0.083, fy: 0.27, fy2: 0.063, phase: 5.1 },
+        { cx: 0.92, cy: 0.55, ax: 0.08, ay: 0.17, ax2: 0.03, ay2: 0.05, fx: 0.23, fx2: 0.087, fy: 0.32, fy2: 0.077, phase: 0.4 },
+        { cx: 0.60, cy: 0.85, ax: 0.19, ay: 0.09, ax2: 0.06, ay2: 0.03, fx: 0.18, fx2: 0.103, fy: 0.28, fy2: 0.073, phase: 5.5 },
+        { cx: 0.06, cy: 0.72, ax: 0.05, ay: 0.14, ax2: 0.03, ay2: 0.05, fx: 0.28, fx2: 0.107, fy: 0.21, fy2: 0.081, phase: 0.9 },
+      ],
+    },
+
+    // --- sparkles riding the fluid ---
+    particles: {
+      count: 196,
+      size: 26,      // sprite size in px
+      flowGain: 1.2, // velocity field -> ride speed
+      inertia: 1.5,  // lower = heavier, lags further behind the paint
+      depth: -8,     // z in the angler layer — negative sits behind the fish
+      palette: [0x7de8d8, 0xffffff, 0xc4fca0], // teal / white / pale lime
+    },
+
+    // --- the anglerfish looming behind the paint ---
+    angler: {
+      url: "anglerfish/scene.gltf",
+      height: 0.72,  // fraction of the view height the body spans
+      x: 0.26,       // offset from screen center, fraction of view width
+      y: -0.02,      // offset from screen center, fraction of view height
+      sway: 0.16,    // idle yaw sway (radians)
+      roll: 0.035,   // idle roll around the view axis (radians)
+      bob: 0.25,     // idle vertical bob (world units)
+      // the fish turns with the pointer's horizontal position from center
+      pointerTurn: 0.2,  // extra yaw toward the cursor side (radians, ±)
+      pointerEase: 0.8,   // how quickly it chases the pointer (1/s)
+      drift: 0.05,   // tempo of the idle motion
+      fadeIn: 3,     // seconds to emerge from the dark after loading
+      dimming: 1.6,  // how fast dye density swallows the silhouette
+      shimmer: 0.8,  // how much the fluid flow warps its outline
+      // surface finish — the asset's spec/gloss looks harsh under our lights,
+      // so override it on load (KHR spec-gloss: .specular color + .glossiness)
+      material: {
+        specular: 0x2a3038, // specular tint — dim, cool grey = wet-but-matte
+        glossiness: 0,   // 0 = matte, 1 = mirror-sharp highlight
+      },
+      // the lantern: a glow sprite + point light at the lure bulb
+      glow: {
+        color: 0xd8c878, // gloomy bioluminescent yellow
+        offset: [-0.47, 0.06, 0], // bulb position, fractions of the body bbox
+        size: 1.3,      // sprite diameter as a fraction of the body height
+        intensity: 4.6,  // point light strength
+        reach: 34,       // light falloff distance (screen-space units)
+        pulse: 0.3,      // how deeply the glow breathes (0 = steady)
+        pulseSpeed: 0.2, // tempo of the breathing
+      },
+      // deep-water fog: with camera distance the fish dissolves into the
+      // background color — the far flank and tail sink into the dark
+      fog: {
+        color: 0x0e101c, // the visible night background (CSS --bg-raised) —
+                         // a fogged fragment melts into the surrounding water
+        near: 24,        // world units from the camera where fading starts
+        far: 31,         // fully swallowed here (camera sits at z = 30)
+      },
+    },
+  };
+
+  // format a JS number as a GLSL float literal — paint constants are baked
+  // into the shader source at startup, they are not live uniforms
+  const fl = (x) => (String(x).includes(".") ? String(x) : x + ".0");
+
+  /* ---------- renderer / scene / camera ---------- */
+
+  // no MSAA: the scene is a fullscreen quad + soft alpha sprites, so there
+  // are no geometric edges to smooth — multisampling would only cost bandwidth
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.OrthographicCamera(
+    window.innerWidth / -2, window.innerWidth / 2,
+    window.innerHeight / 2, window.innerHeight / -2,
+    1, 1000
+  );
+  camera.position.z = 10;
+  scene.add(camera);
+
+  const PASSTHROUGH_VERT = `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = vec4(position.xy, 0.0, 1.0);
+    }
+  `;
+
+  /* ============================================================
+     GPU fluid solver (Stam "stable fluids", ping-pong targets)
+     ============================================================ */
+
+  const gl = renderer.getContext();
+  const fluidSupported =
+    renderer.capabilities.isWebGL2 && !!gl.getExtension("EXT_color_buffer_float");
+
+  let fluid = null;
+
+  // aspect-corrected grid: texels stay square on screen, so vortices are
+  // round instead of stretched to the viewport's aspect ratio
+  function gridRes(base) {
+    const aspect = window.innerWidth / window.innerHeight;
+    const long = Math.round(base * Math.max(aspect, 1 / aspect));
+    return aspect >= 1 ? { w: long, h: base } : { w: base, h: long };
+  }
+
+  function createFluid() {
+    const aspect = () => window.innerWidth / window.innerHeight;
+
+    const simSize = gridRes(CONFIG.sim.simRes);
+    const dyeSize = gridRes(CONFIG.sim.dyeRes);
+    const readSize = gridRes(CONFIG.sim.readRes);
+
+    function makeTarget(w, h, type, filter) {
+      return new THREE.WebGLRenderTarget(w, h, {
+        type,
+        format: THREE.RGBAFormat,
+        minFilter: filter,
+        magFilter: filter,
+        wrapS: THREE.ClampToEdgeWrapping,
+        wrapT: THREE.ClampToEdgeWrapping,
+        depthBuffer: false,
+        stencilBuffer: false,
+      });
+    }
+
+    function doubleTarget(w, h, type, filter) {
+      let a = makeTarget(w, h, type, filter);
+      let b = makeTarget(w, h, type, filter);
+      return {
+        get read() { return a; },
+        get write() { return b; },
+        swap() { const t = a; a = b; b = t; },
+      };
+    }
+
+    const half = THREE.HalfFloatType;
+    const velocity = doubleTarget(simSize.w, simSize.h, half, THREE.LinearFilter);
+    const dye = doubleTarget(dyeSize.w, dyeSize.h, half, THREE.LinearFilter);
+    const pressure = doubleTarget(simSize.w, simSize.h, half, THREE.NearestFilter);
+    const divergence = makeTarget(simSize.w, simSize.h, half, THREE.NearestFilter);
+    const curl = makeTarget(simSize.w, simSize.h, half, THREE.NearestFilter);
+    const readback = makeTarget(readSize.w, readSize.h, THREE.UnsignedByteType, THREE.NearestFilter);
+    const height = makeTarget(dyeSize.w, dyeSize.h, half, THREE.LinearFilter);
+
+    const texel = new THREE.Vector2(1 / simSize.w, 1 / simSize.h);
+    const dyeTexel = new THREE.Vector2(1 / dyeSize.w, 1 / dyeSize.h);
+
+    /* ---------- pass materials ---------- */
+
+    function passMaterial(fragment, uniforms) {
+      return new THREE.ShaderMaterial({
+        depthTest: false,
+        depthWrite: false,
+        vertexShader: PASSTHROUGH_VERT,
+        fragmentShader: fragment,
+        uniforms,
+      });
+    }
+
+    const advectMat = passMaterial(`
+      varying vec2 vUv;
+      uniform sampler2D uVelocity;
+      uniform sampler2D uSource;
+      uniform vec2 uTexel;
+      uniform float uDt;
+      uniform float uDissipation;
+      void main() {
+        vec2 coord = vUv - uDt * texture2D(uVelocity, vUv).xy * uTexel;
+        gl_FragColor = uDissipation * texture2D(uSource, coord);
+        gl_FragColor.a = 1.0;
+      }
+    `, {
+      uVelocity: { value: null },
+      uSource: { value: null },
+      uTexel: { value: texel },
+      uDt: { value: 0 },
+      uDissipation: { value: 1 },
+    });
+
+    // all of a frame's splats (idle stirrers + brush) are summed in a single
+    // pass per target — gaussians are additive, so this matches applying them
+    // one ping-pong pass each, at a fraction of the fill cost
+    const MAX_SPLATS = 24;
+    const splatMat = passMaterial(`
+      varying vec2 vUv;
+      uniform sampler2D uTarget;
+      uniform float uAspect;
+      uniform int uCount;
+      uniform vec3 uPoints[${MAX_SPLATS}]; // xy = position, z = radius
+      uniform vec3 uColors[${MAX_SPLATS}];
+      void main() {
+        vec3 acc = texture2D(uTarget, vUv).xyz;
+        for (int i = 0; i < ${MAX_SPLATS}; i++) {
+          if (i >= uCount) break;
+          vec2 p = vUv - uPoints[i].xy;
+          p.x *= uAspect;
+          acc += exp(-dot(p, p) / uPoints[i].z) * uColors[i];
+        }
+        gl_FragColor = vec4(acc, 1.0);
+      }
+    `, {
+      uTarget: { value: null },
+      uAspect: { value: 1 },
+      uCount: { value: 0 },
+      uPoints: { value: Array.from({ length: MAX_SPLATS }, () => new THREE.Vector3()) },
+      uColors: { value: Array.from({ length: MAX_SPLATS }, () => new THREE.Vector3()) },
+    });
+
+    const curlMat = passMaterial(`
+      varying vec2 vUv;
+      uniform sampler2D uVelocity;
+      uniform vec2 uTexel;
+      void main() {
+        float L = texture2D(uVelocity, vUv - vec2(uTexel.x, 0.0)).y;
+        float R = texture2D(uVelocity, vUv + vec2(uTexel.x, 0.0)).y;
+        float B = texture2D(uVelocity, vUv - vec2(0.0, uTexel.y)).x;
+        float T = texture2D(uVelocity, vUv + vec2(0.0, uTexel.y)).x;
+        gl_FragColor = vec4(0.5 * (R - L - T + B), 0.0, 0.0, 1.0);
+      }
+    `, {
+      uVelocity: { value: null },
+      uTexel: { value: texel },
+    });
+
+    const vorticityMat = passMaterial(`
+      varying vec2 vUv;
+      uniform sampler2D uVelocity;
+      uniform sampler2D uCurl;
+      uniform vec2 uTexel;
+      uniform float uStrength;
+      uniform float uDt;
+      void main() {
+        float L = texture2D(uCurl, vUv - vec2(uTexel.x, 0.0)).x;
+        float R = texture2D(uCurl, vUv + vec2(uTexel.x, 0.0)).x;
+        float B = texture2D(uCurl, vUv - vec2(0.0, uTexel.y)).x;
+        float T = texture2D(uCurl, vUv + vec2(0.0, uTexel.y)).x;
+        float C = texture2D(uCurl, vUv).x;
+        vec2 force = 0.5 * vec2(abs(T) - abs(B), abs(R) - abs(L));
+        force /= length(force) + 0.0001;
+        force *= uStrength * C * vec2(1.0, -1.0);
+        vec2 vel = texture2D(uVelocity, vUv).xy + force * uDt;
+        gl_FragColor = vec4(clamp(vel, -1000.0, 1000.0), 0.0, 1.0);
+      }
+    `, {
+      uVelocity: { value: null },
+      uCurl: { value: null },
+      uTexel: { value: texel },
+      uStrength: { value: CONFIG.sim.vorticity },
+      uDt: { value: 0 },
+    });
+
+    const divergenceMat = passMaterial(`
+      varying vec2 vUv;
+      uniform sampler2D uVelocity;
+      uniform vec2 uTexel;
+      void main() {
+        float L = texture2D(uVelocity, vUv - vec2(uTexel.x, 0.0)).x;
+        float R = texture2D(uVelocity, vUv + vec2(uTexel.x, 0.0)).x;
+        float B = texture2D(uVelocity, vUv - vec2(0.0, uTexel.y)).y;
+        float T = texture2D(uVelocity, vUv + vec2(0.0, uTexel.y)).y;
+        gl_FragColor = vec4(0.5 * (R - L + T - B), 0.0, 0.0, 1.0);
+      }
+    `, {
+      uVelocity: { value: null },
+      uTexel: { value: texel },
+    });
+
+    const clearMat = passMaterial(`
+      varying vec2 vUv;
+      uniform sampler2D uTexture;
+      uniform float uValue;
+      void main() {
+        gl_FragColor = uValue * texture2D(uTexture, vUv);
+      }
+    `, {
+      uTexture: { value: null },
+      uValue: { value: CONFIG.sim.pressureDecay },
+    });
+
+    const pressureMat = passMaterial(`
+      varying vec2 vUv;
+      uniform sampler2D uPressure;
+      uniform sampler2D uDivergence;
+      uniform vec2 uTexel;
+      void main() {
+        float L = texture2D(uPressure, vUv - vec2(uTexel.x, 0.0)).x;
+        float R = texture2D(uPressure, vUv + vec2(uTexel.x, 0.0)).x;
+        float B = texture2D(uPressure, vUv - vec2(0.0, uTexel.y)).x;
+        float T = texture2D(uPressure, vUv + vec2(0.0, uTexel.y)).x;
+        float div = texture2D(uDivergence, vUv).x;
+        gl_FragColor = vec4((L + R + B + T - div) * 0.25, 0.0, 0.0, 1.0);
+      }
+    `, {
+      uPressure: { value: null },
+      uDivergence: { value: null },
+      uTexel: { value: texel },
+    });
+
+    const gradientMat = passMaterial(`
+      varying vec2 vUv;
+      uniform sampler2D uPressure;
+      uniform sampler2D uVelocity;
+      uniform vec2 uTexel;
+      void main() {
+        float L = texture2D(uPressure, vUv - vec2(uTexel.x, 0.0)).x;
+        float R = texture2D(uPressure, vUv + vec2(uTexel.x, 0.0)).x;
+        float B = texture2D(uPressure, vUv - vec2(0.0, uTexel.y)).x;
+        float T = texture2D(uPressure, vUv + vec2(0.0, uTexel.y)).x;
+        vec2 vel = texture2D(uVelocity, vUv).xy - vec2(R - L, T - B);
+        gl_FragColor = vec4(vel, 0.0, 1.0);
+      }
+    `, {
+      uPressure: { value: null },
+      uVelocity: { value: null },
+      uTexel: { value: texel },
+    });
+
+    // height map: 3x3 tent-smoothed dye density — the paint's relief surface
+    const heightMat = passMaterial(`
+      varying vec2 vUv;
+      uniform sampler2D uDye;
+      uniform vec2 uTexel;
+      void main() {
+        float h = length(texture2D(uDye, vUv).rgb) * 4.0;
+        h += length(texture2D(uDye, vUv + vec2( uTexel.x, 0.0)).rgb) * 2.0;
+        h += length(texture2D(uDye, vUv + vec2(-uTexel.x, 0.0)).rgb) * 2.0;
+        h += length(texture2D(uDye, vUv + vec2(0.0,  uTexel.y)).rgb) * 2.0;
+        h += length(texture2D(uDye, vUv + vec2(0.0, -uTexel.y)).rgb) * 2.0;
+        h += length(texture2D(uDye, vUv + vec2( uTexel.x,  uTexel.y)).rgb);
+        h += length(texture2D(uDye, vUv + vec2(-uTexel.x,  uTexel.y)).rgb);
+        h += length(texture2D(uDye, vUv + vec2( uTexel.x, -uTexel.y)).rgb);
+        h += length(texture2D(uDye, vUv + vec2(-uTexel.x, -uTexel.y)).rgb);
+        h /= 16.0;
+        h = 1.0 - exp(-h * ${fl(CONFIG.paint.heightCompression)}); // compress: thick paint plateaus instead of spiking
+        gl_FragColor = vec4(h, 0.0, 0.0, 1.0);
+      }
+    `, {
+      uDye: { value: null },
+      uTexel: { value: dyeTexel },
+    });
+
+    // viscous diffusion (Jacobi): each iteration lets neighboring velocities
+    // drag on each other — this is what makes the fluid thick and sticky
+    const viscosityMat = passMaterial(`
+      varying vec2 vUv;
+      uniform sampler2D uVelocity;
+      uniform vec2 uTexel;
+      uniform float uAmount;
+      void main() {
+        vec2 L = texture2D(uVelocity, vUv - vec2(uTexel.x, 0.0)).xy;
+        vec2 R = texture2D(uVelocity, vUv + vec2(uTexel.x, 0.0)).xy;
+        vec2 B = texture2D(uVelocity, vUv - vec2(0.0, uTexel.y)).xy;
+        vec2 T = texture2D(uVelocity, vUv + vec2(0.0, uTexel.y)).xy;
+        vec2 C = texture2D(uVelocity, vUv).xy;
+        vec2 vel = (C + uAmount * (L + R + B + T)) / (1.0 + 4.0 * uAmount);
+        gl_FragColor = vec4(vel, 0.0, 1.0);
+      }
+    `, {
+      uVelocity: { value: null },
+      uTexel: { value: texel },
+      uAmount: { value: CONFIG.sim.viscosity },
+    });
+
+    // encode velocity (rg) and dye density (b) into bytes,
+    // sqrt curves for precision near zero
+    const encodeMat = passMaterial(`
+      varying vec2 vUv;
+      uniform sampler2D uVelocity;
+      uniform sampler2D uDye;
+      uniform float uMax;
+      void main() {
+        vec2 v = texture2D(uVelocity, vUv).xy / uMax;
+        v = clamp(v, -1.0, 1.0);
+        v = sign(v) * sqrt(abs(v));
+        float d = length(texture2D(uDye, vUv).rgb);
+        d = sqrt(clamp(d * 0.5, 0.0, 1.0));
+        gl_FragColor = vec4(v * 0.5 + 0.5, d, 1.0);
+      }
+    `, {
+      uVelocity: { value: null },
+      uDye: { value: null },
+      uMax: { value: CONFIG.sim.velEncodeMax },
+    });
+
+    /* ---------- blit helper ---------- */
+
+    const simScene = new THREE.Scene();
+    const simCamera = new THREE.Camera();
+    const simMesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), advectMat);
+    simMesh.frustumCulled = false;
+    simScene.add(simMesh);
+
+    function blit(material, target) {
+      simMesh.material = material;
+      renderer.setRenderTarget(target);
+      renderer.render(simScene, simCamera);
+    }
+
+    /* ---------- splats ---------- */
+
+    const pendingSplats = [];
+
+    // one velocity pass + one dye pass per chunk of MAX_SPLATS
+    function applySplats(splats, first, count) {
+      const points = splatMat.uniforms.uPoints.value;
+      const colors = splatMat.uniforms.uColors.value;
+      splatMat.uniforms.uAspect.value = aspect();
+      splatMat.uniforms.uCount.value = count;
+
+      for (let i = 0; i < count; i++) {
+        const s = splats[first + i];
+        points[i].set(s.x, s.y, s.radius);
+        colors[i].set(s.dx, s.dy, 0);
+      }
+      splatMat.uniforms.uTarget.value = velocity.read.texture;
+      blit(splatMat, velocity.write);
+      velocity.swap();
+
+      for (let i = 0; i < count; i++) {
+        const s = splats[first + i];
+        if (s.color) colors[i].copy(s.color);
+        else colors[i].set(0, 0, 0);
+      }
+      splatMat.uniforms.uTarget.value = dye.read.texture;
+      blit(splatMat, dye.write);
+      dye.swap();
+    }
+
+    /* ---------- readback for CPU particles ----------
+       async: readPixels lands in a pixel-pack buffer on the GPU's timeline
+       and a fence marks its completion; the CPU collects it a frame or two
+       later instead of stalling the pipeline every frame. The particles ride
+       velocity data that is one frame stale — imperceptible. */
+
+    const readBuffer = new Uint8Array(readSize.w * readSize.h * 4);
+    // pre-fill with the byte encoding of "zero velocity, no dye" so the
+    // first frames (before the first async read lands) decode harmlessly
+    for (let i = 0; i < readBuffer.length; i += 4) {
+      readBuffer[i] = 128;
+      readBuffer[i + 1] = 128;
+      readBuffer[i + 3] = 255;
+    }
+    const readPBO = gl.createBuffer();
+    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, readPBO);
+    gl.bufferData(gl.PIXEL_PACK_BUFFER, readBuffer.byteLength, gl.STREAM_READ);
+    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+    let readFence = null;
+
+    function decodeVel(byte) {
+      const s = byte / 127.5 - 1;
+      return s * Math.abs(s) * CONFIG.sim.velEncodeMax;
+    }
+
+    // bilinear sample of the readback: velocity in out.x/out.y,
+    // local dye density in out.z — x/y in 0..1 (y up)
+    function sampleVelocity(x, y, out) {
+      const rw = readSize.w, rh = readSize.h;
+      const fx = Math.min(Math.max(x, 0), 0.999) * (rw - 1);
+      const fy = Math.min(Math.max(y, 0), 0.999) * (rh - 1);
+      const x0 = Math.floor(fx), y0 = Math.floor(fy);
+      const x1 = Math.min(x0 + 1, rw - 1), y1 = Math.min(y0 + 1, rh - 1);
+      const tx = fx - x0, ty = fy - y0;
+      const i00 = (y0 * rw + x0) * 4, i10 = (y0 * rw + x1) * 4;
+      const i01 = (y1 * rw + x0) * 4, i11 = (y1 * rw + x1) * 4;
+      const b = readBuffer;
+      const u = (b[i00] * (1 - tx) + b[i10] * tx) * (1 - ty) +
+                (b[i01] * (1 - tx) + b[i11] * tx) * ty;
+      const v = (b[i00 + 1] * (1 - tx) + b[i10 + 1] * tx) * (1 - ty) +
+                (b[i01 + 1] * (1 - tx) + b[i11 + 1] * tx) * ty;
+      const d = (b[i00 + 2] * (1 - tx) + b[i10 + 2] * tx) * (1 - ty) +
+                (b[i01 + 2] * (1 - tx) + b[i11 + 2] * tx) * ty;
+      out.x = decodeVel(u);
+      out.y = decodeVel(v);
+      const dn = d / 255;
+      out.z = dn * dn * 2; // undo sqrt encode -> dye density
+    }
+
+    /* ---------- one simulation step ---------- */
+
+    function step(dt) {
+      for (let i = 0; i < pendingSplats.length; i += MAX_SPLATS) {
+        applySplats(pendingSplats, i, Math.min(MAX_SPLATS, pendingSplats.length - i));
+      }
+      pendingSplats.length = 0;
+
+      curlMat.uniforms.uVelocity.value = velocity.read.texture;
+      blit(curlMat, curl);
+
+      vorticityMat.uniforms.uVelocity.value = velocity.read.texture;
+      vorticityMat.uniforms.uCurl.value = curl.texture;
+      vorticityMat.uniforms.uDt.value = dt;
+      blit(vorticityMat, velocity.write);
+      velocity.swap();
+
+      for (let i = 0; i < CONFIG.sim.viscosityIterations; i++) {
+        viscosityMat.uniforms.uVelocity.value = velocity.read.texture;
+        blit(viscosityMat, velocity.write);
+        velocity.swap();
+      }
+
+      divergenceMat.uniforms.uVelocity.value = velocity.read.texture;
+      blit(divergenceMat, divergence);
+
+      clearMat.uniforms.uTexture.value = pressure.read.texture;
+      blit(clearMat, pressure.write);
+      pressure.swap();
+
+      pressureMat.uniforms.uDivergence.value = divergence.texture;
+      for (let i = 0; i < CONFIG.sim.pressureIterations; i++) {
+        pressureMat.uniforms.uPressure.value = pressure.read.texture;
+        blit(pressureMat, pressure.write);
+        pressure.swap();
+      }
+
+      gradientMat.uniforms.uPressure.value = pressure.read.texture;
+      gradientMat.uniforms.uVelocity.value = velocity.read.texture;
+      blit(gradientMat, velocity.write);
+      velocity.swap();
+
+      advectMat.uniforms.uVelocity.value = velocity.read.texture;
+      advectMat.uniforms.uSource.value = velocity.read.texture;
+      advectMat.uniforms.uDt.value = dt;
+      advectMat.uniforms.uDissipation.value = CONFIG.sim.velocityDissipation;
+      blit(advectMat, velocity.write);
+      velocity.swap();
+
+      advectMat.uniforms.uVelocity.value = velocity.read.texture;
+      advectMat.uniforms.uSource.value = dye.read.texture;
+      advectMat.uniforms.uDissipation.value = CONFIG.sim.dyeDissipation;
+      blit(advectMat, dye.write);
+      dye.swap();
+
+      heightMat.uniforms.uDye.value = dye.read.texture;
+      blit(heightMat, height);
+
+      // collect the previous frame's readback if the GPU is done with it...
+      if (readFence) {
+        const status = gl.clientWaitSync(readFence, 0, 0);
+        if (status === gl.ALREADY_SIGNALED || status === gl.CONDITION_SATISFIED) {
+          gl.deleteSync(readFence);
+          readFence = null;
+          gl.bindBuffer(gl.PIXEL_PACK_BUFFER, readPBO);
+          gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, readBuffer);
+          gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+        }
+      }
+      // ...and kick off the next one (at most a single transfer in flight)
+      if (!readFence) {
+        encodeMat.uniforms.uVelocity.value = velocity.read.texture;
+        encodeMat.uniforms.uDye.value = dye.read.texture;
+        blit(encodeMat, readback);
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, readPBO);
+        gl.readPixels(0, 0, readSize.w, readSize.h, gl.RGBA, gl.UNSIGNED_BYTE, 0);
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+        readFence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+      }
+
+      renderer.setRenderTarget(null);
+    }
+
+    // carry the paint across a rebuild (resize): stretch-blit the previous
+    // fluid's velocity and dye into the freshly allocated grids
+    function seedFrom(prev) {
+      clearMat.uniforms.uValue.value = 1;
+      clearMat.uniforms.uTexture.value = prev.velocity.read.texture;
+      blit(clearMat, velocity.write);
+      velocity.swap();
+      clearMat.uniforms.uTexture.value = prev.dye.read.texture;
+      blit(clearMat, dye.write);
+      dye.swap();
+      clearMat.uniforms.uValue.value = CONFIG.sim.pressureDecay;
+      renderer.setRenderTarget(null);
+    }
+
+    function dispose() {
+      [velocity.read, velocity.write, dye.read, dye.write,
+       pressure.read, pressure.write, divergence, curl, readback, height]
+        .forEach((t) => t.dispose());
+      if (readFence) gl.deleteSync(readFence);
+      gl.deleteBuffer(readPBO);
+    }
+
+    return {
+      velocity, dye, height, pendingSplats,
+      texel, dyeTexel,
+      step, sampleVelocity, seedFrom, dispose,
+    };
+  }
+
+  if (fluidSupported) fluid = createFluid();
+
+  /* ---------- color ramp LUT (stops come from CONFIG.paint.rampColors) ---------- */
+
+  function makeRampTexture(stops) {
+    const w = 256;
+    const c = document.createElement("canvas");
+    c.width = w;
+    c.height = 1;
+    const ctx = c.getContext("2d");
+    const g = ctx.createLinearGradient(0, 0, w, 0);
+    stops.forEach((hex, i) => g.addColorStop(i / (stops.length - 1), hex));
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, 1);
+    const tex = new THREE.CanvasTexture(c);
+    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    tex.wrapS = THREE.ClampToEdgeWrapping;
+    tex.wrapT = THREE.ClampToEdgeWrapping;
+    return tex;
+  }
+
+  /* ---------- aurora background (dye + velocity feed into it) ---------- */
+
+  const auroraMaterial = new THREE.ShaderMaterial({
+    depthTest: false,
+    depthWrite: false,
+    uniforms: {
+      uTime: { value: 0 },
+      uAspect: { value: window.innerWidth / window.innerHeight },
+      uDye: { value: null },
+      uVelocity: { value: null },
+      uDyeTexel: { value: fluid ? fluid.dyeTexel.clone() : new THREE.Vector2(1 / CONFIG.sim.dyeRes, 1 / CONFIG.sim.dyeRes) },
+      uHasFluid: { value: fluid ? 1 : 0 },
+      uRamp: { value: makeRampTexture(CONFIG.paint.rampColors) },
+      uHeight: { value: null },
+      uBump: { value: CONFIG.paint.bump },
+      uBack: { value: null },
+      uBackFade: { value: 0 },
+    },
+    vertexShader: PASSTHROUGH_VERT,
+    fragmentShader: `
+      precision highp float;
+      varying vec2 vUv;
+      uniform float uTime;
+      uniform float uAspect;
+      uniform sampler2D uDye;
+      uniform sampler2D uVelocity;
+      uniform vec2 uDyeTexel;
+      uniform float uHasFluid;
+      uniform sampler2D uRamp;
+      uniform sampler2D uHeight;
+      uniform float uBump;
+      uniform sampler2D uBack;   // the anglerfish, rendered offscreen
+      uniform float uBackFade;
+
+      float hash(vec2 p) {
+        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+      }
+
+      float noise(vec2 p) {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        vec2 u = f * f * (3.0 - 2.0 * f);
+        return mix(
+          mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),
+          mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x),
+          u.y
+        );
+      }
+
+      float fbm(vec2 p) {
+        float v = 0.0;
+        float a = 0.5;
+        mat2 rot = mat2(0.8, 0.6, -0.6, 0.8);
+        for (int i = 0; i < 5; i++) {
+          v += a * noise(p);
+          p = rot * p * 2.05 + vec2(3.7);
+          a *= 0.5;
+        }
+        return v;
+      }
+
+      // density ramp from the LUT texture (CONFIG.paint.rampColors), eased in
+      // from black over a wide density range so faint dye emerges gently
+      vec3 colorRamp(float t) {
+        return texture2D(uRamp, vec2(t, 0.5)).rgb * smoothstep(0.0, ${fl(CONFIG.paint.rampFadeIn)}, t);
+      }
+
+      void main() {
+        vec2 uv = vUv;
+
+        // the fluid gently warps the depth layer
+        vec2 flow = uHasFluid * texture2D(uVelocity, uv).xy * 0.0004;
+        vec2 p = (uv + flow) * vec2(uAspect, 1.0);
+
+        float t = uTime * 0.05;
+
+        // base: muted night with a faint violet-grey cast (ref: right example)
+        vec3 col = vec3(0.028, 0.032, 0.052);
+        col += vec3(0.016, 0.014, 0.030) * smoothstep(0.2, 1.0, uv.x + uv.y);
+
+        // one soft depth layer, barely there
+        float depth = fbm(p * 1.6 + vec2(t * 0.6, -t * 0.3));
+        col += vec3(0.040, 0.070, 0.110) * pow(depth, 2.5);
+
+        // ---- paint relief: normal from the height map ----
+        float hC = texture2D(uHeight, uv).x;
+        float hL = texture2D(uHeight, uv - vec2(uDyeTexel.x, 0.0)).x;
+        float hR = texture2D(uHeight, uv + vec2(uDyeTexel.x, 0.0)).x;
+        float hB = texture2D(uHeight, uv - vec2(0.0, uDyeTexel.y)).x;
+        float hT = texture2D(uHeight, uv + vec2(0.0, uDyeTexel.y)).x;
+        vec3 n = normalize(vec3((hL - hR) * uBump, (hB - hT) * uBump, 1.0));
+
+        // subtle parallax: thick paint sits above the canvas, so its color
+        // is looked up slightly shifted along the surface normal
+        vec2 uvP = uv + n.xy * hC * ${fl(CONFIG.paint.parallax)};
+        vec3 dye = texture2D(uDye, uvP).rgb;
+        float d = length(dye);
+        float t01 = 1.0 - exp(-d * ${fl(CONFIG.paint.densityCurve)}); // soft-saturating density
+        vec3 ink = colorRamp(t01); // the ramp is the single source of color
+
+        // the anglerfish looms BEHIND the paint: the flow field warps its
+        // silhouette a touch, and dense ink swallows it entirely.
+        // premultiplied-style composite — the opaque body (alpha 1) swaps in,
+        // while the lantern's additive halo (bright rgb, low alpha) adds glow
+        vec4 back = texture2D(uBack, uv + flow * ${fl(CONFIG.angler.shimmer)});
+        float occl = uBackFade * exp(-d * ${fl(CONFIG.angler.dimming)});
+        col = col * (1.0 - back.a * occl) + back.rgb * occl;
+
+        // fake lighting: key light from the upper left, viewer straight on
+        vec3 lightDir = normalize(vec3(-0.45, 0.65, 0.6));
+        float diff = clamp(dot(n, lightDir), 0.0, 1.0);
+        vec3 halfDir = normalize(lightDir + vec3(0.0, 0.0, 1.0));
+        float spec = pow(max(dot(n, halfDir), 0.0), ${fl(CONFIG.paint.specPower)});
+
+        col += uHasFluid * ink * (${fl(CONFIG.paint.diffuseBase)} + ${fl(CONFIG.paint.diffuseGain)} * diff);
+        // glossy sheen on the ridges — only where there is paint
+        col += uHasFluid * spec * ${fl(CONFIG.paint.specStrength)} * smoothstep(0.035, 0.32, hC);
+        // valleys sink into shadow — eased in, so no hard contour where paint begins
+        col *= mix(1.0, ${fl(1 - CONFIG.paint.valleyShadow)} + ${fl(CONFIG.paint.valleyShadow)} * hC, uHasFluid * smoothstep(0.0, 0.12, hC));
+
+        // soft filmic knee: overlapping ink burns toward white, never clips
+        col = 1.0 - exp(-col * ${fl(CONFIG.paint.exposure)});
+
+        // vignette + grain
+        float vig = smoothstep(1.35, 0.4, length(uv - 0.5));
+        col *= vig;
+        col += (hash(gl_FragCoord.xy + uTime) - 0.5) * 0.012;
+
+        gl_FragColor = vec4(col, 1.0);
+      }
+    `,
+  });
+
+  const auroraMesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), auroraMaterial);
+  auroraMesh.frustumCulled = false;
+  auroraMesh.renderOrder = -1;
+  scene.add(auroraMesh);
+
+  /* ---------- the anglerfish looming behind the paint ----------
+     A GLTF model in its own scene, rendered to an offscreen target every
+     frame and composited by the aurora shader UNDER the ink — the paint
+     literally swims in front of it. */
+
+  // horizontal pointer position, -1 (left edge) .. +1 (right edge), 0 center.
+  // separate from the brush's pointerTarget: this one persists after the
+  // cursor leaves so the fish holds its lean instead of snapping back.
+  // pointerAim is the raw target; pointerLean is the eased value the fish uses
+  let pointerAim = 0;
+  const angler = { root: null, fade: 0, pointerLean: 0 };
+  window.addEventListener("mousemove", (e) => { pointerAim = (e.clientX / window.innerWidth) * 2 - 1; });
+  window.addEventListener("touchmove", (e) => { pointerAim = (e.touches[0].clientX / window.innerWidth) * 2 - 1; }, { passive: true });
+
+  const anglerScene = new THREE.Scene();
+  anglerScene.fog = new THREE.Fog(
+    CONFIG.angler.fog.color, CONFIG.angler.fog.near, CONFIG.angler.fog.far
+  );
+  const anglerCamera = new THREE.PerspectiveCamera(
+    35, window.innerWidth / window.innerHeight, 0.1, 200
+  );
+  anglerCamera.position.set(0, 0, 30);
+
+  const anglerRT = new THREE.WebGLRenderTarget(
+    Math.round(window.innerWidth * renderer.getPixelRatio()),
+    Math.round(window.innerHeight * renderer.getPixelRatio())
+  );
+  auroraMaterial.uniforms.uBack.value = anglerRT.texture;
+
+  // moody deep-sea light: cold ambient plus a key from the upper left that
+  // matches the paint shader's fake light — the lure adds its own glow
+  anglerScene.add(new THREE.AmbientLight(0x33506a, 0.6));
+  const anglerKey = new THREE.DirectionalLight(0x9fd8d0, 0.85);
+  anglerKey.position.set(-6, 7, 9);
+  anglerScene.add(anglerKey);
+
+  // view size of the fish camera's frustum at the model's depth (z = 0)
+  function anglerViewSize() {
+    const h = 2 * anglerCamera.position.z * Math.tan((anglerCamera.fov * Math.PI) / 360);
+    return { w: h * anglerCamera.aspect, h };
+  }
+
+  if (THREE.GLTFLoader) {
+    new THREE.GLTFLoader().load(
+      CONFIG.angler.url,
+      (gltf) => {
+        const A = CONFIG.angler;
+        const model = gltf.scene;
+        model.rotation.y = Math.PI; // nose points +x — turn it toward the text
+
+        // tame the spec-gloss finish — the raw asset is too shiny/plasticky
+        // under our lights. The eyes keep their own look (they're emissive).
+        const M = A.material;
+        model.traverse((o) => {
+          if (!o.isMesh) return; // Sphere = eyes
+          const mat = o.material;
+          if (mat.specular) mat.specular.setHex(M.specular);
+          if (mat.glossiness !== undefined) mat.glossiness = M.glossiness;
+          mat.needsUpdate = true;
+        });
+
+        // center the pivot on the body, scale to the configured screen share
+        const box = new THREE.Box3().setFromObject(model);
+        const size = box.getSize(new THREE.Vector3());
+        const center = box.getCenter(new THREE.Vector3());
+        model.position.sub(center);
+
+        const wrap = new THREE.Group();
+        wrap.add(model);
+        const s = (A.height * anglerViewSize().h) / size.y;
+        wrap.scale.setScalar(s);
+
+        // the lantern: a mysterious glow at the lure bulb — an additive
+        // sprite for the halo and a point light spilling onto the face
+        const G = A.glow;
+        const bulb = new THREE.Group();
+        bulb.position.set(
+          G.offset[0] * size.x,
+          G.offset[1] * size.y,
+          G.offset[2] * size.z
+        );
+        const glowSprite = new THREE.Sprite(new THREE.SpriteMaterial({
+          map: makeGlowTexture(),
+          color: G.color,
+          fog: false, // the lure's glow pierces the deep-water fog
+          blending: THREE.AdditiveBlending,
+          transparent: true,
+          depthWrite: false,
+          depthTest: false, // the halo floats over the bulb geometry
+        }));
+        const glowSize = G.size * size.y;
+        glowSprite.scale.set(glowSize, glowSize, 1);
+        const glowLight = new THREE.PointLight(G.color, G.intensity, G.reach / s, 2);
+        bulb.add(glowSprite);
+        bulb.add(glowLight);
+        wrap.add(bulb);
+
+        anglerScene.add(wrap);
+        angler.root = wrap;
+        angler.glowSprite = glowSprite;
+        angler.glowLight = glowLight;
+        angler.glowSize = glowSize;
+      },
+      undefined,
+      (err) => console.warn("anglerfish failed to load — background stays empty:", err)
+    );
+  }
+
+  function updateAngler(time, dt) {
+    const A = CONFIG.angler;
+
+    // the layer fades in once at load — the fish (when the model arrives)
+    // and the sparkles behind it emerge from the dark together
+    angler.fade = Math.min(angler.fade + dt / A.fadeIn, 1);
+    const e = angler.fade * angler.fade * (3 - 2 * angler.fade);
+    auroraMaterial.uniforms.uBackFade.value = e;
+
+    // ease the fish's lean toward the pointer's horizontal position
+    angler.pointerLean += (pointerAim - angler.pointerLean) *
+      Math.min(dt * A.pointerEase, 1);
+
+    if (angler.root) {
+      // slow idle hover, like it's holding its place in the current, plus a
+      // drift toward the pointer's side of the window
+      const view = anglerViewSize();
+      const t = time * A.drift * Math.PI * 2;
+      angler.root.position.set(
+        A.x * view.w + Math.sin(t * 0.9) * 0.4,
+        A.y * view.h + Math.sin(t * 1.4 + 1.0) * A.bob,
+        0
+      );
+      angler.root.rotation.y = 0.5 + Math.sin(t * 0.7) * A.sway + angler.pointerLean * A.pointerTurn;
+      angler.root.rotation.z = Math.sin(t * 1.1 + 2.0) * A.roll;
+
+      // the lantern breathes — two offset sines make it slow and irregular,
+      // more bioluminescence than blinker
+      if (angler.glowSprite) {
+        const pt = time * A.glow.pulseSpeed * Math.PI * 2;
+        const breathe =
+          1 - A.glow.pulse * (0.5 + 0.3 * Math.sin(pt) + 0.2 * Math.sin(pt * 2.7 + 1.3));
+        angler.glowSprite.material.opacity = breathe;
+        const ps = angler.glowSize * (0.85 + 0.15 * breathe);
+        angler.glowSprite.scale.set(ps, ps, 1);
+        angler.glowLight.intensity = A.glow.intensity * breathe;
+      }
+    }
+
+    renderer.setRenderTarget(anglerRT);
+    renderer.setClearColor(0x000000, 0); // transparent where there is no fish
+    renderer.clear();
+    renderer.render(anglerScene, anglerCamera);
+    renderer.setRenderTarget(null);
+    renderer.setClearColor(0x000000, 1);
+  }
+
+  /* ---------- glowing sprite texture (generated, no asset) ---------- */
+
+  function makeGlowTexture() {
+    const size = 128;
+    const c = document.createElement("canvas");
+    c.width = c.height = size;
+    const ctx = c.getContext("2d");
+    const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    g.addColorStop(0.0, "rgba(255,255,255,0.9)");
+    g.addColorStop(0.15, "rgba(255,255,255,0.4)");
+    g.addColorStop(0.45, "rgba(255,255,255,0.07)");
+    g.addColorStop(1.0, "rgba(255,255,255,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, size, size);
+    return new THREE.CanvasTexture(c);
+  }
+
+  /* ---------- sparkles riding the fluid, glowing inside the dye ---------- */
+
+  const COUNT = CONFIG.particles.count;
+  const dummy = new THREE.Object3D();
+  const particles = [];
+  const velSample = new THREE.Vector3(); // x/y velocity, z dye density
+  const tmpColor = new THREE.Color();
+
+  const particleMaterial = new THREE.MeshBasicMaterial({
+    map: makeGlowTexture(),
+    transparent: true,
+    fog: false, // sparkles keep their own brightness logic, unfogged
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+
+  const instancedMesh = new THREE.InstancedMesh(
+    new THREE.PlaneGeometry(1, 1),
+    particleMaterial,
+    COUNT
+  );
+  instancedMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  instancedMesh.frustumCulled = false;
+  // the sparkles render in the angler layer, at a depth behind the fish —
+  // its body genuinely occludes them, and the paint dims them like the fish
+  anglerScene.add(instancedMesh);
+
+  // one family of tones — sparkles matching the ramp palette
+  const palette = CONFIG.particles.palette.map((hex) => new THREE.Color(hex));
+
+  for (let i = 0; i < COUNT; ++i) {
+    particles.push({
+      x: Math.random(),
+      y: Math.random(),
+      vx: 0,
+      vy: 0,
+      drift: Math.random() * Math.PI * 2,
+      twinkle: 1 + Math.random() * 3,
+      base: palette[i % palette.length],
+      scale: 0.5 + Math.random() * 1.0,
+    });
+    instancedMesh.setColorAt(i, palette[i % palette.length]);
+  }
+  instancedMesh.instanceColor.needsUpdate = true;
+
+  /* ---------- input: the mouse stirs the FLUID, not the particles ---------- */
+
+  // ink drifts slowly between aqua and violet-blue (ref: right example) —
+  // a slow, coherent cycle, not per-splat randomness
+  const aquaInk = new THREE.Vector3(...CONFIG.ink.aqua);
+  const violetInk = new THREE.Vector3(...CONFIG.ink.violet);
+  const inkNow = new THREE.Vector3();
+
+  function inkAt(timeSec, intensity) {
+    const m = 0.5 + 0.5 * Math.sin(timeSec * CONFIG.ink.cycleSpeed);
+    inkNow.copy(aquaInk).lerp(violetInk, m);
+    inkNow.addScalar(CONFIG.ink.whiteLift);
+    return inkNow.clone().multiplyScalar(intensity);
+  }
+
+  // splats are never injected at raw pointer positions — a virtual brush
+  // eases toward the cursor once per frame, so fast flicks become smooth,
+  // speed-limited strokes with the same character as the idle stirrers
+  let pointerTarget = null;
+  const brush = { x: 0.5, y: 0.5, active: false };
+
+  function onPointer(clientX, clientY) {
+    pointerTarget = {
+      x: clientX / window.innerWidth,
+      y: 1 - clientY / window.innerHeight,
+    };
+  }
+
+  window.addEventListener("mousemove", (e) => onPointer(e.clientX, e.clientY));
+  window.addEventListener("touchmove", (e) => onPointer(e.touches[0].clientX, e.touches[0].clientY));
+  window.addEventListener("mouseleave", () => {
+    pointerTarget = null;
+    brush.active = false;
+  });
+
+  function updateBrush(time, dt) {
+    if (!fluid || !pointerTarget || dt <= 0) return;
+    // the brush chases the cursor plus a small drifting orbit, so it keeps
+    // circling — and inking — even while the pointer rests
+    const ot = time * CONFIG.mouse.orbitSpeed;
+    const tx = pointerTarget.x + (Math.sin(ot * 1.3) + 0.5 * Math.sin(ot * 2.17)) * CONFIG.mouse.orbit;
+    const ty = pointerTarget.y + (Math.cos(ot * 1.1) + 0.5 * Math.cos(ot * 1.93)) * CONFIG.mouse.orbit;
+    if (!brush.active) {
+      // first contact: appear at the cursor instead of streaking toward it
+      brush.x = tx;
+      brush.y = ty;
+      brush.active = true;
+      return;
+    }
+    const k = 1 - Math.exp(-dt * CONFIG.mouse.follow); // framerate-independent chase
+    let vx = ((tx - brush.x) * k) / dt;                // uv/s
+    let vy = ((ty - brush.y) * k) / dt;
+    const sp = Math.hypot(vx, vy);
+    if (sp > CONFIG.mouse.maxSpeed) {
+      vx *= CONFIG.mouse.maxSpeed / sp;
+      vy *= CONFIG.mouse.maxSpeed / sp;
+    }
+    brush.x += vx * dt;
+    brush.y += vy * dt;
+    if (sp < 0.01) return; // resting on the cursor — don't pile up paint
+    const dx = vx * CONFIG.mouse.force * motionScale;
+    const dy = vy * CONFIG.mouse.force * motionScale;
+    // pigment scales with the brush's speed, like the idle stirrers
+    const speed = Math.min(Math.hypot(dx, dy) / 60, 1);
+    fluid.pendingSplats.push({
+      x: brush.x, y: brush.y, dx, dy,
+      color: inkAt(time, CONFIG.mouse.inkBase + CONFIG.mouse.inkGain * speed),
+      radius: CONFIG.mouse.radius,
+    });
+  }
+
+  /* ---------- idle stirrer: keeps the fluid (and swarm) alive ---------- */
+
+  function stirrerPos(s, time) {
+    const t = time + s.phase;
+    return [
+      s.cx + Math.sin(t * s.fx) * s.ax + Math.sin(t * s.fx2) * s.ax2,
+      s.cy + Math.cos(t * s.fy) * s.ay + Math.cos(t * s.fy2) * s.ay2,
+    ];
+  }
+
+  // the lissajous paths never sync, but at any given moment a few stirrers
+  // can happen to clump — scan the first minutes of the combined motion for
+  // the pose where the closest pair is furthest apart, and start there
+  const IDLE_TIME_OFFSET = (() => {
+    const stirrers = CONFIG.idle.stirrers;
+    const aspect = window.innerWidth / window.innerHeight;
+    let best = 0;
+    let bestScore = -1;
+    for (let T = 0; T <= 300; T += 0.5) {
+      let minD = Infinity;
+      // score the pose around the moment the stirrers actually arrive on
+      // their lissajous paths — after the intro heart has dissolved and the
+      // last straggler of the staggered departure has blended in
+      const arrive = CONFIG.intro.hold + CONFIG.intro.blend
+        + CONFIG.intro.stagger * (stirrers.length - 1);
+      for (const sample of [T + arrive, T + arrive + 2, T + arrive + 4]) {
+        const pos = stirrers.map((s) => stirrerPos(s, sample));
+        for (let i = 0; i < pos.length; i++) {
+          for (let j = i + 1; j < pos.length; j++) {
+            const dx = (pos[i][0] - pos[j][0]) * aspect;
+            const dy = pos[i][1] - pos[j][1];
+            minD = Math.min(minD, dx * dx + dy * dy);
+          }
+        }
+      }
+      if (minD > bestScore) { bestScore = minD; best = T; }
+    }
+    return best;
+  })();
+
+  /* ---------- intro pose ----------
+     At load the stirrers sit spaced along a heart outline, slowly tracing
+     it (a static pose would dissolve — tracing keeps the line re-inked);
+     after a hold they ease onto their lissajous paths and the heart
+     dissolves into the ambient field. */
+
+  // classic parametric heart, normalized to roughly ±1, y up
+  function heartXY(a) {
+    return [
+      (16 * Math.pow(Math.sin(a), 3)) / 17,
+      (13 * Math.cos(a) - 5 * Math.cos(2 * a) - 2 * Math.cos(3 * a) - Math.cos(4 * a)) / 17,
+    ];
+  }
+
+  // the heart parametrization stalls at the top cleft and bottom cusp, so
+  // uniform parameter steps bunch stirrers there and their dye merges into
+  // blobs — remap through an arc-length table for even spacing on the outline
+  const heartArcParam = (() => {
+    const N = 512;
+    const cum = new Float32Array(N + 1);
+    let px = 0, py = 0;
+    for (let k = 0; k <= N; k++) {
+      const [x, y] = heartXY((k / N) * Math.PI * 2);
+      if (k > 0) cum[k] = cum[k - 1] + Math.hypot(x - px, y - py);
+      px = x; py = y;
+    }
+    const total = cum[N];
+    return (u) => {
+      const target = (u - Math.floor(u)) * total;
+      let lo = 1, hi = N;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (cum[mid] < target) lo = mid + 1; else hi = mid;
+      }
+      const seg = cum[lo] - cum[lo - 1] || 1;
+      const f = (target - cum[lo - 1]) / seg;
+      return ((lo - 1 + f) / N) * Math.PI * 2;
+    };
+  })();
+
+  /* ---------- intro pose: the heart ----------
+     At load the stirrers (and their ghosts) sit spaced along the heart
+     outline, slowly tracing it — a static pose would dissolve, tracing
+     keeps the line re-inked. After the hold they ease onto their lissajous
+     paths one by one and the heart dissolves into the ambient field. */
+
+  // where intro slot uHome sits at a live time: crawling around the heart
+  // outline at the trace speed (the arc-length remap keeps spacing even)
+  function introPoint(uHome, time) {
+    const I = CONFIG.intro;
+    const [hx, hy] = heartXY(heartArcParam(uHome + time * I.trace));
+    const aspect = window.innerWidth / window.innerHeight;
+    return [I.cx + (hx * I.size) / aspect, I.cy + hy * I.size];
+  }
+
+  // eased 0..1 departure of stirrer i from the heart — staggered by index,
+  // so the swarm peels off the outline one stirrer at a time
+  function introEase(i, time) {
+    const I = CONFIG.intro;
+    const k = Math.min(Math.max((time - I.hold - i * I.stagger) / I.blend, 0), 1);
+    return k * k * (3 - 2 * k);
+  }
+
+  // where stirrer i actually is at a live time: on the heart during the
+  // intro (negative times = the warm-up's reconstructed past), on its
+  // lissajous path afterwards, eased between the two
+  function stirrerLivePos(s, i, time) {
+    const heart = introPoint(i / CONFIG.idle.stirrers.length, time);
+    const e = introEase(i, time);
+    if (e <= 0) return heart;
+    const liss = stirrerPos(s, IDLE_TIME_OFFSET + time);
+    return [heart[0] + (liss[0] - heart[0]) * e, heart[1] + (liss[1] - heart[1]) * e];
+  }
+
+  // ghost stirrer j lives at the midpoints between the real stirrers — it
+  // has no lissajous path to leave for; its ink simply fades at departure
+  function ghostLivePos(j, time) {
+    return introPoint((j + 0.5) / CONFIG.intro.ghosts, time);
+  }
+
+  // scale > 1 lets the warm-up compress many frames' worth of stirring into
+  // one splat; during live frames it stays at 1
+  function idleStir(time, scale = 1) {
+    if (!fluid) return;
+    const stirrers = CONFIG.idle.stirrers;
+    const h = 1 / 60;
+    const I = CONFIG.intro;
+    for (let i = 0; i < stirrers.length; i++) {
+      const s = stirrers[i];
+      // intro stirs run at reduced force, easing up to full as each stirrer
+      // disperses — same staggered ease as stirrerLivePos, so force, pigment
+      // and path track together per stirrer
+      const eIntro = introEase(i, time);
+      const introForce = I.force + (1 - I.force) * eIntro;
+      const introInk = I.ink + (1 - I.ink) * eIntro;
+      // numeric path derivative — valid on the heart, the lissajous paths
+      // and every eased blend in between
+      const [x, y] = stirrerLivePos(s, i, time);
+      const [px, py] = stirrerLivePos(s, i, time - h);
+      const dx = ((x - px) / h) * CONFIG.idle.force * introForce * motionScale;
+      const dy = ((y - py) / h) * CONFIG.idle.force * introForce * motionScale;
+      // pigment scales with the stirrer's speed, like the mouse strokes
+      const speed = Math.min(Math.hypot(dx, dy) / 60, 1);
+      fluid.pendingSplats.push({
+        x, y, dx: dx * scale, dy: dy * scale,
+        color: inkAt(time, (CONFIG.idle.inkBase + CONFIG.idle.inkGain * speed) * scale * introInk),
+        radius: CONFIG.idle.radius,
+      });
+    }
+
+    // ghost stirrers: intro-only line thickeners. They ride the same shapes
+    // at half-slot offsets and fade out in the same staggered ripple the
+    // real stirrers leave in, instead of joining the ambient swarm.
+    for (let j = 0; j < I.ghosts; j++) {
+      const gFade = 1 - introEase(j + 0.5, time);
+      if (gFade <= 0) continue;
+      const [x, y] = ghostLivePos(j, time);
+      const [px, py] = ghostLivePos(j, time - h);
+      const dx = ((x - px) / h) * CONFIG.idle.force * I.force * motionScale;
+      const dy = ((y - py) / h) * CONFIG.idle.force * I.force * motionScale;
+      const speed = Math.min(Math.hypot(dx, dy) / 60, 1);
+      fluid.pendingSplats.push({
+        x, y, dx: dx * scale, dy: dy * scale,
+        color: inkAt(time, (CONFIG.idle.inkBase + CONFIG.idle.inkGain * speed) * scale * I.ink * gFade),
+        radius: CONFIG.idle.radius,
+      });
+    }
+  }
+
+  /* ---------- warm-up: reconstruct the stirrers' recent past ----------
+     The idle paths are analytic, so they can be evaluated at negative
+     times: lay their last few seconds of paint down in one burst (older
+     paint pre-faded by the dye dissipation rate), then let the solver
+     smear it. The live loop starts at t=0 and continues seamlessly. */
+
+  function warmup() {
+    if (!fluid) return;
+    const W = CONFIG.warmup;
+    // how much of a splat survives one second of live dissipation (~60 steps)
+    const dyeSurvivalPerSec = Math.pow(CONFIG.sim.dyeDissipation, 60);
+    // the settle steps below fade every seed too — age the history against
+    // the settle time, not against t=0, so the field doesn't open dim
+    const settle = W.steps / 60;
+    for (let t = -W.span; t < 0; t += W.interval) {
+      const age = Math.max(0, -t - settle);
+      const survives = Math.pow(dyeSurvivalPerSec, age);
+      // interval * 60 = how many live-frame splats each history splat stands in for
+      idleStir(t, W.interval * 60 * survives);
+    }
+    for (let i = 0; i < W.steps; i++) {
+      fluid.step((1 / 60) * CONFIG.sim.speed);
+    }
+  }
+
+  // warmup(); // experiment: disabled — the field starts blank
+
+  /* ---------- resize ---------- */
+
+  let resizeTimer;
+
+  function onResize() {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    camera.left = w / -2;
+    camera.right = w / 2;
+    camera.top = h / 2;
+    camera.bottom = h / -2;
+    camera.updateProjectionMatrix();
+    renderer.setSize(w, h);
+    auroraMaterial.uniforms.uAspect.value = w / h;
+
+    anglerCamera.aspect = w / h;
+    anglerCamera.updateProjectionMatrix();
+    const pr = renderer.getPixelRatio();
+    anglerRT.setSize(Math.round(w * pr), Math.round(h * pr));
+
+    // grids are allocated for the current aspect ratio — rebuild them
+    // (debounced) and copy the old paint over so nothing visibly resets
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      if (!fluidSupported) return;
+      const prev = fluid;
+      fluid = createFluid();
+      if (prev) {
+        fluid.seedFrom(prev);
+        prev.dispose();
+      }
+      auroraMaterial.uniforms.uDyeTexel.value.copy(fluid.dyeTexel);
+    }, 250);
+  }
+  window.addEventListener("resize", onResize);
+
+  /* ---------- scroll: fade the visual once past the hero ---------- */
+
+  function onScroll() {
+    const fade = 1 - Math.min(window.scrollY / window.innerHeight, 1) * 0.75;
+    canvas.style.opacity = fade.toFixed(3);
+  }
+  window.addEventListener("scroll", onScroll, { passive: true });
+  onScroll();
+
+  /* ---------- particle update: advected by the velocity field ---------- */
+
+  function updateParticles(time, dt) {
+    const size = CONFIG.particles.size;
+    // the uv field maps onto the angler camera's frustum at the sparkle
+    // depth, so they still cover the whole screen behind the fish
+    const depth = CONFIG.particles.depth;
+    const dist = anglerCamera.position.z - depth;
+    const wh = 2 * dist * Math.tan((anglerCamera.fov * Math.PI) / 360);
+    const ww = wh * anglerCamera.aspect;
+    const pxToWorld = wh / window.innerHeight; // sprite sizes stay in px terms
+
+    for (let i = 0; i < COUNT; ++i) {
+      const p = particles[i];
+      let dyeHere = 0;
+
+      if (fluid) {
+        fluid.sampleVelocity(p.x, p.y, velSample);
+        dyeHere = velSample.z;
+        // texels/s -> uv/s per axis, with a bit of gain so the ride is visible
+        const fx = velSample.x * fluid.texel.x * CONFIG.particles.flowGain;
+        const fy = velSample.y * fluid.texel.y * CONFIG.particles.flowGain;
+        // heavy inertia: the paint drags the sparkles along sluggishly
+        p.vx += (fx - p.vx) * Math.min(dt * CONFIG.particles.inertia, 1);
+        p.vy += (fy - p.vy) * Math.min(dt * CONFIG.particles.inertia, 1);
+      }
+
+      // faint ambient drift so calm regions still breathe
+      const ax = Math.sin(time * 0.3 + p.drift) * 0.006 * motionScale;
+      const ay = Math.cos(time * 0.26 + p.drift * 1.7) * 0.005 * motionScale;
+
+      p.x += (p.vx + ax) * dt;
+      p.y += (p.vy + ay) * dt;
+
+      // wrap around the edges with a margin
+      if (p.x < -0.05) p.x += 1.1;
+      if (p.x > 1.05) p.x -= 1.1;
+      if (p.y < -0.05) p.y += 1.1;
+      if (p.y > 1.05) p.y -= 1.1;
+
+      // sparkles live in the ink: near-invisible outside the wisps,
+      // twinkling bright inside them (ref: right example)
+      const twinkle = 0.75 + 0.25 * Math.sin(time * p.twinkle * 2.2 + p.drift * 7.0);
+      const brightness = fluid
+        ? 0.12 + Math.min(dyeHere * 2.8, 1.8) * twinkle
+        : 0.42;
+      tmpColor.copy(p.base).multiplyScalar(brightness);
+      instancedMesh.setColorAt(i, tmpColor);
+
+      const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
+      const pulse = 1 + Math.min(speed * 2, 0.35);
+
+      dummy.position.set((p.x - 0.5) * ww, (p.y - 0.5) * wh, depth);
+      const sc = size * p.scale * pulse * pxToWorld;
+      dummy.scale.set(sc, sc, 1);
+      dummy.updateMatrix();
+      instancedMesh.setMatrixAt(i, dummy.matrix);
+    }
+    instancedMesh.instanceMatrix.needsUpdate = true;
+    instancedMesh.instanceColor.needsUpdate = true;
+  }
+
+  /* ---------- animation loop ---------- */
+
+  // TEMP perf experiment: on-screen FPS meter (real wall-clock frames,
+  // unaffected by motionScale)
+  const fpsEl = document.createElement("div");
+  fpsEl.style.cssText =
+    "position:fixed;top:70px;left:10px;z-index:9999;padding:4px 8px;" +
+    "font:12px/1.4 monospace;color:#7de8d8;background:rgba(0,0,0,0.55);" +
+    "border-radius:4px;pointer-events:none;";
+  document.body.appendChild(fpsEl);
+  let fpsFrames = 0;
+  let fpsLast = performance.now();
+
+  const clock = new THREE.Clock();
+
+  function frame() {
+    const dt = Math.min(clock.getDelta(), 1 / 30) * motionScale;
+    const time = clock.getElapsedTime();
+
+    fpsFrames++;
+    const fpsNow = performance.now();
+    if (fpsNow - fpsLast >= 500) {
+      fpsEl.textContent = ((fpsFrames * 1000) / (fpsNow - fpsLast)).toFixed(1) + " fps";
+      fpsFrames = 0;
+      fpsLast = fpsNow;
+    }
+
+    if (fluid) {
+      idleStir(time);
+      updateBrush(time, dt);
+      fluid.step(dt * CONFIG.sim.speed);
+      auroraMaterial.uniforms.uDye.value = fluid.dye.read.texture;
+      auroraMaterial.uniforms.uVelocity.value = fluid.velocity.read.texture;
+      auroraMaterial.uniforms.uHeight.value = fluid.height.texture;
+    }
+
+    auroraMaterial.uniforms.uTime.value = time * motionScale;
+    updateParticles(time, dt);
+    updateAngler(time, dt);
+    renderer.render(scene, camera);
+
+    requestAnimationFrame(frame);
+  }
+
+  requestAnimationFrame(frame);
+})();
+
+/* ---------- Scroll reveal ---------- */
+
+(function scrollReveal() {
+  const els = document.querySelectorAll(".reveal");
+  const io = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add("is-visible");
+          io.unobserve(entry.target);
+        }
+      }
+    },
+    { threshold: 0.12, rootMargin: "0px 0px -40px 0px" }
+  );
+  els.forEach((el) => {
+    // hero elements are on screen at load — the -40px bottom rootMargin would
+    // keep the ones hugging the viewport edge (scroll hint, coords) hidden
+    // until the first scroll, so reveal them right away instead
+    if (el.closest(".hero")) {
+      el.classList.add("is-visible");
+    } else {
+      io.observe(el);
+    }
+  });
+})();
+
+/* ---------- Nav scrolled state ---------- */
+
+(function navState() {
+  const nav = document.getElementById("nav");
+  const onScroll = () => nav.classList.toggle("is-scrolled", window.scrollY > 30);
+  window.addEventListener("scroll", onScroll, { passive: true });
+  onScroll();
+})();

@@ -1,18 +1,10 @@
 {
-  "name": "express-browser-reload",
-  "version": "0.0.0",
+  "name": "mshad.github.io",
   "private": true,
   "scripts": {
-    "start": "node ./bin/www",
-    "watch": "nodemon --ext * ./bin/www"
-  },
-  "dependencies": {
-    "express": "~4.16.1",
-    "http-errors": "~1.6.3"
+    "dev": "live-server --host=0.0.0.0 --port=8080 --no-browser --ignore=.git,.idea,node_modules"
   },
   "devDependencies": {
-    "connect-livereload": "^0.6.1",
-    "livereload": "^0.9.3",
-    "nodemon": "^2.0.15"
+    "live-server": "^1.2.2"
   }
 }
