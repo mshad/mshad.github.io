@@ -141,6 +141,34 @@
       height: 0.72,  // fraction of the view height the body spans
       x: 0.26,       // offset from screen center, fraction of view width
       y: -0.02,      // offset from screen center, fraction of view height
+      // --- scroll stations: as each section scrolls into view the fish
+      // swims to its spot (x/y like above; keys are section ids, page order).
+      // yaw is the resting heading: 0.5 faces left toward the center,
+      // Math.PI - 0.5 is its mirror — parked on the left, looking right
+      stations: {
+        top:        { x:  0.26, y: -0.02, yaw: 0.5 },
+        work:       { x: -0.30, y:  0.06, yaw: Math.PI - 0.5 },
+        about:      { x:  0.30, y: -0.08, yaw: 0.5 },
+        experience: { x: -0.30, y:  0.02, yaw: Math.PI - 0.5 },
+        skills:     { x:  0.28, y:  0.08, yaw: 0.5 },
+        contact:    { x: -0.26, y: -0.06, yaw: Math.PI - 0.5 },
+      },
+      travel: {
+        ease: 0.7,     // 1/s — cruise speed toward the new station
+        turnEase: 1.6, // 1/s — how quickly it swings between headings
+        swimYaw: 0.2,  // heading under way: near-profile, nose to its goal
+                       // (0 = exact profile, more = angled toward the camera)
+        arrive: 0.18,  // remaining distance (view widths) over which the
+                       // heading blends from swimming into the rest pose
+      },
+      // --- intro: on page load it swims in from the deep back-right; the
+      // fog hides the body at first, so the lure's glow (fog-proof) shows
+      // up alone and the silhouette materializes around it as it closes in
+      intro: {
+        x: 0.55, // start, view widths right of center
+        y: 0.06, // a touch above its hero station
+        z: -18,  // world units behind the resting plane, deep in the fog
+      },
       sway: 0.16,    // idle yaw sway (radians)
       roll: 0.035,   // idle roll around the view axis (radians)
       bob: 0.25,     // idle vertical bob (world units)
@@ -879,9 +907,33 @@
   // cursor leaves so the fish holds its lean instead of snapping back.
   // pointerAim is the raw target; pointerLean is the eased value the fish uses
   let pointerAim = 0;
-  const angler = { root: null, fade: 0, pointerLean: 0 };
+  const angler = {
+    root: null, fade: 0, pointerLean: 0,
+    // eased home position and heading. It starts at the intro spot, deep in
+    // the fog behind its resting plane (z 0), and swims to the hero station
+    homeX: CONFIG.angler.intro.x, homeY: CONFIG.angler.intro.y,
+    homeZ: CONFIG.angler.intro.z,
+    faceYaw: CONFIG.angler.stations.top.yaw,
+  };
   window.addEventListener("mousemove", (e) => { pointerAim = (e.clientX / window.innerWidth) * 2 - 1; });
   window.addEventListener("touchmove", (e) => { pointerAim = (e.touches[0].clientX / window.innerWidth) * 2 - 1; }, { passive: true });
+
+  // which section owns the viewport center — the fish's station follows it
+  let anglerStation = CONFIG.angler.stations.top || CONFIG.angler;
+  {
+    const ids = Object.keys(CONFIG.angler.stations);
+    const pick = () => {
+      const mid = window.scrollY + window.innerHeight * 0.5;
+      let current = ids[0];
+      for (const id of ids) {
+        const el = document.getElementById(id);
+        if (el && el.offsetTop <= mid) current = id;
+      }
+      anglerStation = CONFIG.angler.stations[current];
+    };
+    window.addEventListener("scroll", pick, { passive: true });
+    pick();
+  }
 
   const anglerScene = new THREE.Scene();
   anglerScene.fog = new THREE.Fog(
@@ -990,17 +1042,38 @@
     angler.pointerLean += (pointerAim - angler.pointerLean) *
       Math.min(dt * A.pointerEase, 1);
 
+    // cruise toward the active section's station; homeZ carries the intro
+    // swim-in from the deep and then settles at the resting plane (z 0)
+    const k = Math.min(dt * A.travel.ease, 1);
+    angler.homeX += (anglerStation.x - angler.homeX) * k;
+    angler.homeY += (anglerStation.y - angler.homeY) * k;
+    angler.homeZ += (0 - angler.homeZ) * k;
+
+    // heading: under way it faces its direction of travel like a swimming
+    // fish, nose first — swimYaw biases the nose toward the camera so it
+    // never goes paper-thin in profile. Over the final stretch the heading
+    // blends smoothly (smoothstep) into the station's resting pose
+    const view = anglerViewSize();
+    const dxW = (anglerStation.x - angler.homeX) * view.w; // world units
+    const dzW = -angler.homeZ;                             // toward the camera
+    const swimYaw = Math.atan2(dzW + A.travel.swimYaw * Math.abs(dxW), -dxW);
+    const s = Math.min(Math.hypot(dxW, dzW) / view.w / A.travel.arrive, 1);
+    const blend = s * s * (3 - 2 * s); // 1 = full swim, 0 = at rest
+    const yawGoal = anglerStation.yaw + (swimYaw - anglerStation.yaw) * blend;
+    angler.faceYaw += (yawGoal - angler.faceYaw) *
+      Math.min(dt * A.travel.turnEase, 1);
+
     if (angler.root) {
       // slow idle hover, like it's holding its place in the current, plus a
       // drift toward the pointer's side of the window
-      const view = anglerViewSize();
       const t = time * A.drift * Math.PI * 2;
       angler.root.position.set(
-        A.x * view.w + Math.sin(t * 0.9) * 0.4,
-        A.y * view.h + Math.sin(t * 1.4 + 1.0) * A.bob,
-        0
+        angler.homeX * view.w + Math.sin(t * 0.9) * 0.4,
+        angler.homeY * view.h + Math.sin(t * 1.4 + 1.0) * A.bob,
+        angler.homeZ
       );
-      angler.root.rotation.y = 0.5 + Math.sin(t * 0.7) * A.sway + angler.pointerLean * A.pointerTurn;
+      angler.root.rotation.y = angler.faceYaw + Math.sin(t * 0.7) * A.sway +
+        angler.pointerLean * A.pointerTurn;
       angler.root.rotation.z = Math.sin(t * 1.1 + 2.0) * A.roll;
 
       // the lantern breathes — two offset sines make it slow and irregular,
