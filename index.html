@@ -44,23 +44,25 @@
   <!-- ***** Hero ***** -->
   <header class="hero" id="top">
     <div class="hero__inner row">
-      <p class="hero__eyebrow reveal">Creative Software Developer</p>
+      <!-- intro choreography: the nav drops in right away (~0.15s, style.css
+           nav-drop) while the heart draws itself on (~0-3s, the background's
+           reveal sweep); the anglerfish's lure appears in the deep at ~2.5s
+           (CONFIG.angler.intro.delay), the text cascade enters from ~3s as
+           the finished heart releases, the footer last -->
+      <p class="hero__eyebrow reveal" style="--d:3s">Creative Software Developer</p>
       <h1 class="hero__title">
-        <span class="reveal" style="--d:.1s">Matthias</span>
-        <span class="reveal" style="--d:.2s">Markowski</span>
+        <span class="reveal" style="--d:3.15s">Matthias</span>
+        <span class="reveal" style="--d:3.3s">Markowski</span>
       </h1>
-      <p class="hero__subtitle reveal" style="--d:.35s">
+      <p class="hero__subtitle reveal" style="--d:3.6s">
         I craft <em>real-time 3D</em>, <em>WebGL</em> and <em>interactive experiences</em>.
       </p>
-      <div class="hero__actions reveal" style="--d:.5s">
-        <a href="#work" class="btn btn--primary">Selected Work</a>
-      </div>
     </div>
     <div class="hero__footer row">
-      <a href="#work" class="hero__scroll reveal" style="--d:.7s">
+      <a href="#work" class="hero__scroll reveal" style="--d:4.1s">
         <span class="hero__scroll-line" aria-hidden="true"></span>Scroll to explore
       </a>
-      <p class="hero__coords reveal" style="--d:.8s">⚓ 53.5084° N, 9.8662° E</p>
+      <p class="hero__coords reveal" style="--d:4.25s">⚓ 53.5084° N, 9.8662° E</p>
     </div>
   </header>
 

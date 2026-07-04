@@ -1,7 +1,8 @@
 /* ============================================================
    Matthias Markowski — Portfolio
-   Background: Three.js aurora + GPU fluid solver (stable fluids)
-   The mouse stirs the fluid; particles ride the velocity field.
+   Background: Three.js deep-sea scene + GPU fluid solver (stable fluids)
+   Bioluminescent microbes stir the fluid (the mouse swims along as one
+   of them); sparkles ride the velocity field like drifting plankton.
    ============================================================ */
 
 (function background3D() {
@@ -18,6 +19,13 @@
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const motionScale = reducedMotion ? 0.4 : 1;
 
+  // layout size of the fixed canvas — measured from the element, not from
+  // window.innerHeight. Its CSS height is 100lvh, which mobile browsers
+  // keep stable while their URL bar collapses on scroll, so scrolling never
+  // triggers a real resize (rebuilding mid-scroll made the paint slide).
+  const viewW = () => canvas.clientWidth || window.innerWidth;
+  const viewH = () => canvas.clientHeight || window.innerHeight;
+
   /* ============================================================
      CONFIG — every tunable dial in one place
      ============================================================ */
@@ -32,35 +40,41 @@
       pressureIterations: 20,     // Jacobi solve quality (incompressibility)
       viscosityIterations: 3,     // velocity diffusion passes: the "oil paint" thickness
       viscosity: 0.5,             // drag per diffusion pass
-      vorticity: 8,               // low: paint smears laminar, it doesn't whirl
-      pressureDecay: 0.8,         // pressure kept between frames (0..1)
-      velocityDissipation: 0.999, // momentum kept per step — lower dies faster
-      dyeDissipation: 0.985,      // pigment kept per step — how fast paint dissolves
+      vorticity: 1,               // low: paint smears laminar, it doesn't whirl
+      pressureDecay: 0.2,         // pressure kept between frames (0..1)
+      velocityDissipation: 0.995, // momentum kept per step — lower dies faster
+      dyeDissipation: 0.88,       // pigment kept per step — how fast paint dissolves
       velEncodeMax: 600,          // texels/s mapped to the byte readback
     },
 
     // --- warm-up: the field opens mid-motion instead of blank ---
     warmup: {
-      span: 6,      // seconds of stirrer history reconstructed at load
+      span: 6,      // seconds of microbe history reconstructed at load
       interval: 0.2,// seconds between history splats along each path
       steps: 48,    // solver steps to smear the seeds into coherent paint
     },
 
-    // --- intro: the stirrers open tracing a heart, then wander off ---
+    // --- intro: the microbes open tracing a heart, then wander off ---
     intro: {
-      cx: 0.32,    // center of the heart (uv, y up)
-      cy: 0.64,
-      size: 0.22,  // scale — roughly half the heart's height in uv
-      trace: 0.01, // how fast each stirrer crawls along the outline (loops/s)
-      hold: 5,     // seconds the heart is held before the swarm departs
-      blend: 5,    // seconds to ease from the outline into wandering
-      force: 0.2,  // stir velocity multiplier on the heart — all stirrers circle
+      cx: 0.5,    // center of the heart (uv, y up)
+      cy: 0.5,
+      size: 0.2,  // scale — roughly half the heart's height in uv
+      trace: 0.02, // how fast each microbe crawls along the outline (loops/s)
+      reveal: 2.4, // seconds for the outline to light up end to end — the
+                   // slots ignite one by one in path order, so the heart
+                   // draws itself on starting at the top cleft
+      ignite: 0.6, // each slot's fade-in once its turn on the path comes
+      hold: 3,     // seconds the heart is held before the swarm departs —
+                   // right after the reveal sweep completes (reveal + ignite)
+      blend: 2,    // seconds to ease from the outline into wandering
+      force: 0.2,  // stir velocity multiplier on the heart — all microbes circle
                    // in step there, so full force whips up one big vortex
-      ink: 0.2,    // pigment multiplier on the heart — the slow trace re-inks
+      glow: 1,   // emission multiplier on the heart — the slow trace re-seeds
                    // the same spots over and over, full dye pools into blobs
-      stagger: 0.25, // seconds between consecutive stirrers leaving the heart —
+      stagger: 0.1,  // seconds between consecutive microbes leaving the heart —
                      // the swarm disperses one by one instead of all at once
-      ghosts: 40,    // extra intro-only stirrers interleaved between the real
+                     // (also paces the ghosts' fade ripple, ~ghosts×stagger)
+      ghosts: 16,    // extra intro-only microbes interleaved between the real
                      // ones — they thicken the heart outline, then fade out
                      // instead of swarming off
     },
@@ -69,60 +83,94 @@
     paint: {
       // ramp from darkest (wisp edges) to brightest (dense core); paste hex
       // stops from a gradient tool (e.g. colordesigner.io) — any count works
+      // sampled from the anglerfish photo (03-popup-jpg--965-.jpg), applied
+      // INVERTED like a backlit translucent microbe culture: the thinnest
+      // veils glow electric ice-blue (the membrane edge) and dense cores
+      // sink back into abyssal blue-black — no warm hues; the lure keeps
+      // the only one
       rampColors: [
-        "#292f56", "#1e4572", "#005c8b", "#007498", "#008ba0",
-        "#00a3a4", "#00bca1", "#00d493", "#69e882", "#acfa70",
+        "#93d1e8", "#65b4d6", "#3b93bd", "#2374a0",
+        "#175a7d", "#113f5b", "#0b2033", "#060b14",
       ],
       densityCurve: 1.6,      // how fast dye density saturates the ramp
       rampFadeIn: 0.35,       // density range over which dye eases in from black
+      coreClear: 0.55,        // translucent cores: how quickly dense paint goes
+                              // glassy and lets the water behind show through —
+                              // only the fringe keeps the glow (0 = opaque body)
       heightCompression: 1.4, // thick paint plateaus instead of spiking
       bump: 7.5,              // relief strength of the paint surface
-      parallax: 0.008,        // thick paint shifts its color lookup slightly
-      diffuseBase: 0.38,      // ink brightness in shadow
-      diffuseGain: 0.85,      // ink brightness added by the key light
+      parallax: 0,        // thick paint shifts its color lookup slightly
+      diffuseBase: 0.38,      // glow brightness in shadow
+      diffuseGain: 0.85,      // glow brightness added by the key light
       specStrength: 0.3,      // gloss on the ridges
       specPower: 40,          // gloss tightness — higher = smaller highlight
       valleyShadow: 0.15,     // how far valleys sink into shadow
-      exposure: 1.35,         // filmic knee — overlapping ink burns, never clips
+      exposure: 1.35,         // filmic knee — overlapping glow burns, never clips
     },
 
-    // --- pigment color cycle ---
-    ink: {
-      aqua: [0.06, 0.3, 0.28],
-      violet: [0.2, 0.1, 0.34],
-      cycleSpeed: 0.07, // slow, coherent drift between the two inks
-      whiteLift: 0.03,  // small white lift so dense cores burn bright
+    // --- bioluminescence color cycle ---
+    biolume: {
+      // cooler, bluer pair: cold lagoon aqua drifting into abyssal violet
+      aqua: [0.05, 0.26, 0.3],
+      violet: [0.14, 0.1, 0.38],
+      cycleSpeed: 0.07, // slow, coherent drift between the two hues
+      whiteLift: 0.06,  // small white lift so dense cores burn bright
     },
 
-    // --- mouse brush: a stirrer that chases the cursor ---
+    // --- mouse brush: a microbe that chases the cursor ---
     mouse: {
-      follow: 2,       // chase rate (1/s) — lower = lazier, trails further behind
-      maxSpeed: 1.4,   // uv/s cap on the brush — a fast flick can't blast the paint
+      follow: 3,       // chase rate (1/s) — lower = lazier, trails further behind
+      maxSpeed: 1.8,   // uv/s cap on the brush — a fast flick can't blast the paint
       orbit: 0.02,     // wobble radius around a resting cursor — keeps dye flowing
       orbitSpeed: 0.6, // tempo of that wobble — lower = slower circling
       force: 40,       // brush velocity -> fluid velocity (same scale as idle)
-      radius: 0.0005,  // same tight nib as the idle stirrers
-      inkBase: 0.1,    // pigment from a slow drag
-      inkGain: 0.14,   // extra pigment from a brisk stroke
+      radius: 0.0002,  // same tight nib as the idle microbes
+      glowBase: 0.5,    // pigment from a slow drag
+      glowGain: 0.14,   // extra pigment from a brisk stroke
     },
 
-    // --- idle stirrers: keep the paint alive without input ---
+    // --- idle microbes: keep the paint alive without input ---
     idle: {
       force: 30,
-      radius: 0.0005,
-      inkBase: 0.1,
-      inkGain: 0.14,
-      // six wandering lissajous points: #1 biased right of the hero text,
-      // the rest spread across the whole canvas — differing frequencies and
-      // phases keep them from ever moving in sync
-      stirrers: [
-        { cx: 0.64, cy: 0.55, ax: 0.24, ay: 0.26, ax2: 0.06, ay2: 0.08, fx: 0.31, fx2: 0.117, fy: 0.23, fy2: 0.083, phase: 0.0 },
-        { cx: 0.80, cy: 0.30, ax: 0.15, ay: 0.22, ax2: 0.05, ay2: 0.07, fx: 0.35, fx2: 0.127, fy: 0.26, fy2: 0.091, phase: 1.3 },
-        { cx: 0.68, cy: 0.12, ax: 0.13, ay: 0.11, ax2: 0.06, ay2: 0.04, fx: 0.19, fx2: 0.083, fy: 0.27, fy2: 0.063, phase: 5.1 },
-        { cx: 0.92, cy: 0.55, ax: 0.08, ay: 0.17, ax2: 0.03, ay2: 0.05, fx: 0.23, fx2: 0.087, fy: 0.32, fy2: 0.077, phase: 0.4 },
-        { cx: 0.60, cy: 0.85, ax: 0.19, ay: 0.09, ax2: 0.06, ay2: 0.03, fx: 0.18, fx2: 0.103, fy: 0.28, fy2: 0.073, phase: 5.5 },
-        { cx: 0.06, cy: 0.72, ax: 0.05, ay: 0.14, ax2: 0.03, ay2: 0.05, fx: 0.28, fx2: 0.107, fy: 0.21, fy2: 0.081, phase: 0.9 },
+      radius: 0.0002,
+      glowBase: 0.5,
+      glowGain: 0.14,
+      // sixteen wandering lissajous points — a loose culture of microbes
+      // spread across the whole canvas, the first biased right of the hero
+      // text. Differing frequencies and phases keep them from ever moving
+      // in sync. `pulse` is each one's swim beat (seconds per
+      // thrust-and-glide cycle, see gait below)
+      microbes: [
+        { cx: 0.64, cy: 0.55, ax: 0.24, ay: 0.26, ax2: 0.06, ay2: 0.08, fx: 0.31, fx2: 0.117, fy: 0.23, fy2: 0.083, phase: 0.0, pulse: 3.4 },
+        { cx: 0.80, cy: 0.30, ax: 0.15, ay: 0.22, ax2: 0.05, ay2: 0.07, fx: 0.35, fx2: 0.127, fy: 0.26, fy2: 0.091, phase: 1.3, pulse: 2.8 },
+        { cx: 0.60, cy: 0.85, ax: 0.19, ay: 0.09, ax2: 0.06, ay2: 0.03, fx: 0.18, fx2: 0.103, fy: 0.28, fy2: 0.073, phase: 5.5, pulse: 3.9 },
+        { cx: 0.06, cy: 0.72, ax: 0.05, ay: 0.14, ax2: 0.03, ay2: 0.05, fx: 0.28, fx2: 0.107, fy: 0.21, fy2: 0.081, phase: 0.9, pulse: 3.1 },
+        { cx: 0.22, cy: 0.18, ax: 0.10, ay: 0.09, ax2: 0.04, ay2: 0.03, fx: 0.26, fx2: 0.093, fy: 0.19, fy2: 0.071, phase: 2.1, pulse: 3.6 },
+        { cx: 0.45, cy: 0.30, ax: 0.12, ay: 0.13, ax2: 0.05, ay2: 0.04, fx: 0.22, fx2: 0.111, fy: 0.30, fy2: 0.087, phase: 3.8, pulse: 2.9 },
+        { cx: 0.90, cy: 0.14, ax: 0.07, ay: 0.10, ax2: 0.03, ay2: 0.04, fx: 0.33, fx2: 0.097, fy: 0.24, fy2: 0.079, phase: 1.7, pulse: 4.1 },
+        { cx: 0.93, cy: 0.70, ax: 0.06, ay: 0.15, ax2: 0.03, ay2: 0.05, fx: 0.21, fx2: 0.089, fy: 0.27, fy2: 0.069, phase: 4.4, pulse: 3.3 },
+        { cx: 0.35, cy: 0.62, ax: 0.11, ay: 0.10, ax2: 0.04, ay2: 0.04, fx: 0.29, fx2: 0.121, fy: 0.20, fy2: 0.091, phase: 0.6, pulse: 2.7 },
+        { cx: 0.13, cy: 0.40, ax: 0.08, ay: 0.12, ax2: 0.03, ay2: 0.04, fx: 0.24, fx2: 0.101, fy: 0.31, fy2: 0.077, phase: 5.9, pulse: 3.8 },
+        { cx: 0.50, cy: 0.08, ax: 0.13, ay: 0.06, ax2: 0.05, ay2: 0.02, fx: 0.20, fx2: 0.113, fy: 0.25, fy2: 0.083, phase: 2.9, pulse: 3.0 },
+        { cx: 0.27, cy: 0.90, ax: 0.12, ay: 0.07, ax2: 0.04, ay2: 0.03, fx: 0.32, fx2: 0.091, fy: 0.18, fy2: 0.067, phase: 1.1, pulse: 4.3 },
+        { cx: 0.74, cy: 0.68, ax: 0.10, ay: 0.12, ax2: 0.04, ay2: 0.05, fx: 0.25, fx2: 0.119, fy: 0.22, fy2: 0.093, phase: 3.2, pulse: 2.6 },
+        { cx: 0.88, cy: 0.45, ax: 0.07, ay: 0.11, ax2: 0.03, ay2: 0.04, fx: 0.30, fx2: 0.099, fy: 0.29, fy2: 0.073, phase: 5.2, pulse: 3.5 },
+        { cx: 0.42, cy: 0.78, ax: 0.10, ay: 0.08, ax2: 0.04, ay2: 0.03, fx: 0.19, fx2: 0.109, fy: 0.26, fy2: 0.081, phase: 0.3, pulse: 3.7 },
+        { cx: 0.08, cy: 0.12, ax: 0.06, ay: 0.08, ax2: 0.03, ay2: 0.03, fx: 0.27, fx2: 0.103, fy: 0.23, fy2: 0.089, phase: 4.0, pulse: 3.2 },
       ],
+    },
+
+    // --- swim gait: the microbes thrust and glide, run-and-tumble style ---
+    // time along each lissajous path is warped so speed pulses smoothly
+    // between (1 - depth) and (1 + depth); emission follows speed, so every
+    // thrust blooms a glowing puff of culture while the faint base glow of
+    // the glide trails behind it like a flagellar wake
+    gait: {
+      period: 3.2, // fallback beat (s) when a microbe sets no `pulse`
+      depth: 0.8,  // pulse depth: 1 = dead stop between thrusts (the trail
+                   // visibly cuts out), lower keeps the glide emitting
+      rise: 0.03,  // uv bob per beat — the body lifts on the thrust and
+                   // settles back during the glide
     },
 
     // --- sparkles riding the fluid ---
@@ -132,7 +180,8 @@
       flowGain: 1.2, // velocity field -> ride speed
       inertia: 1.5,  // lower = heavier, lags further behind the paint
       depth: -8,     // z in the angler layer — negative sits behind the fish
-      palette: [0x7de8d8, 0xffffff, 0xc4fca0], // teal / white / pale lime
+      // filament blues from the same photo as the paint ramp
+      palette: [0x79bfda, 0xecf9ff, 0xa8d8ee], // steel / ice white / pale ice
     },
 
     // --- the anglerfish looming behind the paint ---
@@ -165,9 +214,11 @@
       // fog hides the body at first, so the lure's glow (fog-proof) shows
       // up alone and the silhouette materializes around it as it closes in
       intro: {
-        x: 0.55, // start, view widths right of center
-        y: 0.06, // a touch above its hero station
-        z: -18,  // world units behind the resting plane, deep in the fog
+        x: 0.55,    // start, view widths right of center
+        y: 0.06,    // a touch above its hero station
+        z: -18,     // world units behind the resting plane, deep in the fog
+        delay: 2.5, // seconds it holds in the dark first — the heart and the
+                    // headline (index.html --d cascade) get the stage alone
       },
       sway: 0.16,    // idle yaw sway (radians)
       roll: 0.035,   // idle roll around the view axis (radians)
@@ -176,14 +227,22 @@
       pointerTurn: 0.2,  // extra yaw toward the cursor side (radians, ±)
       pointerEase: 0.8,   // how quickly it chases the pointer (1/s)
       drift: 0.05,   // tempo of the idle motion
-      fadeIn: 3,     // seconds to emerge from the dark after loading
-      dimming: 1.6,  // how fast dye density swallows the silhouette
+      fadeIn: 2,     // seconds to emerge from the dark once its cue comes
+      dimming: 0.6,  // how fast dye density swallows the silhouette — kept
+                     // low so the fish stays visible through translucent blooms
       shimmer: 0.8,  // how much the fluid flow warps its outline
       // surface finish — the asset's spec/gloss looks harsh under our lights,
       // so override it on load (KHR spec-gloss: .specular color + .glossiness)
       material: {
         specular: 0x2a3038, // specular tint — dim, cool grey = wet-but-matte
         glossiness: 0,   // 0 = matte, 1 = mirror-sharp highlight
+      },
+      // --- render quality ---
+      quality: {
+        anisotropy: 8, // texture sharpness at grazing angles — the fish sits
+                       // yawed, so plain trilinear smears its flank (GPU-capped)
+        msaa: 4,       // MSAA samples on the offscreen fish target; its
+                       // silhouette is the page's only hard geometric edge
       },
       // the lantern: a glow sprite + point light at the lure bulb
       glow: {
@@ -216,12 +275,16 @@
   // are no geometric edges to smooth — multisampling would only cost bandwidth
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  // updateStyle false: the stylesheet alone places and sizes the canvas
+  // (fixed, bottom-anchored, 100lvh) — setSize only allocates the buffer.
+  // Inline px styles would override the CSS and re-pin it to the moving
+  // viewport top on mobile.
+  renderer.setSize(viewW(), viewH(), false);
 
   const scene = new THREE.Scene();
   const camera = new THREE.OrthographicCamera(
-    window.innerWidth / -2, window.innerWidth / 2,
-    window.innerHeight / 2, window.innerHeight / -2,
+    viewW() / -2, viewW() / 2,
+    viewH() / 2, viewH() / -2,
     1, 1000
   );
   camera.position.z = 10;
@@ -248,13 +311,13 @@
   // aspect-corrected grid: texels stay square on screen, so vortices are
   // round instead of stretched to the viewport's aspect ratio
   function gridRes(base) {
-    const aspect = window.innerWidth / window.innerHeight;
+    const aspect = viewW() / viewH();
     const long = Math.round(base * Math.max(aspect, 1 / aspect));
     return aspect >= 1 ? { w: long, h: base } : { w: base, h: long };
   }
 
   function createFluid() {
-    const aspect = () => window.innerWidth / window.innerHeight;
+    const aspect = () => viewW() / viewH();
 
     const simSize = gridRes(CONFIG.sim.simRes);
     const dyeSize = gridRes(CONFIG.sim.dyeRes);
@@ -327,7 +390,7 @@
       uDissipation: { value: 1 },
     });
 
-    // all of a frame's splats (idle stirrers + brush) are summed in a single
+    // all of a frame's splats (idle microbes + brush) are summed in a single
     // pass per target — gaussians are additive, so this matches applying them
     // one ping-pong pass each, at a fraction of the fill cost
     const MAX_SPLATS = 24;
@@ -766,7 +829,7 @@
     depthWrite: false,
     uniforms: {
       uTime: { value: 0 },
-      uAspect: { value: window.innerWidth / window.innerHeight },
+      uAspect: { value: viewW() / viewH() },
       uDye: { value: null },
       uVelocity: { value: null },
       uDyeTexel: { value: fluid ? fluid.dyeTexel.clone() : new THREE.Vector2(1 / CONFIG.sim.dyeRes, 1 / CONFIG.sim.dyeRes) },
@@ -857,10 +920,13 @@
         vec3 dye = texture2D(uDye, uvP).rgb;
         float d = length(dye);
         float t01 = 1.0 - exp(-d * ${fl(CONFIG.paint.densityCurve)}); // soft-saturating density
-        vec3 ink = colorRamp(t01); // the ramp is the single source of color
+        vec3 glow = colorRamp(t01); // the ramp is the single source of color
+        // translucent cores: the densest culture goes glassy — its color
+        // falls back out and the water behind carries the body of the bloom
+        glow *= exp(-d * ${fl(CONFIG.paint.coreClear)});
 
         // the anglerfish looms BEHIND the paint: the flow field warps its
-        // silhouette a touch, and dense ink swallows it entirely.
+        // silhouette a touch, and dense culture swallows it entirely.
         // premultiplied-style composite — the opaque body (alpha 1) swaps in,
         // while the lantern's additive halo (bright rgb, low alpha) adds glow
         vec4 back = texture2D(uBack, uv + flow * ${fl(CONFIG.angler.shimmer)});
@@ -873,13 +939,13 @@
         vec3 halfDir = normalize(lightDir + vec3(0.0, 0.0, 1.0));
         float spec = pow(max(dot(n, halfDir), 0.0), ${fl(CONFIG.paint.specPower)});
 
-        col += uHasFluid * ink * (${fl(CONFIG.paint.diffuseBase)} + ${fl(CONFIG.paint.diffuseGain)} * diff);
+        col += uHasFluid * glow * (${fl(CONFIG.paint.diffuseBase)} + ${fl(CONFIG.paint.diffuseGain)} * diff);
         // glossy sheen on the ridges — only where there is paint
         col += uHasFluid * spec * ${fl(CONFIG.paint.specStrength)} * smoothstep(0.035, 0.32, hC);
         // valleys sink into shadow — eased in, so no hard contour where paint begins
         col *= mix(1.0, ${fl(1 - CONFIG.paint.valleyShadow)} + ${fl(CONFIG.paint.valleyShadow)} * hC, uHasFluid * smoothstep(0.0, 0.12, hC));
 
-        // soft filmic knee: overlapping ink burns toward white, never clips
+        // soft filmic knee: overlapping glow burns toward white, never clips
         col = 1.0 - exp(-col * ${fl(CONFIG.paint.exposure)});
 
         // vignette + grain
@@ -899,7 +965,7 @@
 
   /* ---------- the anglerfish looming behind the paint ----------
      A GLTF model in its own scene, rendered to an offscreen target every
-     frame and composited by the aurora shader UNDER the ink — the paint
+     frame and composited by the aurora shader UNDER the culture — the paint
      literally swims in front of it. */
 
   // horizontal pointer position, -1 (left edge) .. +1 (right edge), 0 center.
@@ -908,7 +974,7 @@
   // pointerAim is the raw target; pointerLean is the eased value the fish uses
   let pointerAim = 0;
   const angler = {
-    root: null, fade: 0, pointerLean: 0,
+    root: null, fade: 0, pointerLean: 0, clock: 0,
     // eased home position and heading. It starts at the intro spot, deep in
     // the fog behind its resting plane (z 0), and swims to the hero station
     homeX: CONFIG.angler.intro.x, homeY: CONFIG.angler.intro.y,
@@ -940,14 +1006,18 @@
     CONFIG.angler.fog.color, CONFIG.angler.fog.near, CONFIG.angler.fog.far
   );
   const anglerCamera = new THREE.PerspectiveCamera(
-    35, window.innerWidth / window.innerHeight, 0.1, 200
+    35, viewW() / viewH(), 0.1, 200
   );
   anglerCamera.position.set(0, 0, 30);
 
   const anglerRT = new THREE.WebGLRenderTarget(
-    Math.round(window.innerWidth * renderer.getPixelRatio()),
-    Math.round(window.innerHeight * renderer.getPixelRatio())
+    Math.round(viewW() * renderer.getPixelRatio()),
+    Math.round(viewH() * renderer.getPixelRatio())
   );
+  // WebGL2: multisample the fish's target — the main renderer runs without
+  // MSAA on purpose (all soft sprites), but the fish is real geometry and
+  // its silhouette aliases without it
+  if (renderer.capabilities.isWebGL2) anglerRT.samples = CONFIG.angler.quality.msaa;
   auroraMaterial.uniforms.uBack.value = anglerRT.texture;
 
   // moody deep-sea light: cold ambient plus a key from the upper left that
@@ -974,11 +1044,23 @@
         // tame the spec-gloss finish — the raw asset is too shiny/plasticky
         // under our lights. The eyes keep their own look (they're emissive).
         const M = A.material;
+        const maxAniso = renderer.capabilities.getMaxAnisotropy();
         model.traverse((o) => {
           if (!o.isMesh) return; // Sphere = eyes
           const mat = o.material;
           if (mat.specular) mat.specular.setHex(M.specular);
           if (mat.glossiness !== undefined) mat.glossiness = M.glossiness;
+          // texture filtering: the asset already asks for trilinear
+          // mipmapping, but anisotropy defaults to 1, which smears the
+          // texture at the fish's grazing angles — raise it on every slot
+          for (const slot of ["map", "specularMap", "glossinessMap", "normalMap", "emissiveMap", "aoMap"]) {
+            const tex = mat[slot];
+            if (!tex) continue;
+            tex.anisotropy = Math.min(A.quality.anisotropy, maxAniso);
+            tex.minFilter = THREE.LinearMipmapLinearFilter;
+            tex.generateMipmaps = true;
+            tex.needsUpdate = true;
+          }
           mat.needsUpdate = true;
         });
 
@@ -1032,9 +1114,14 @@
   function updateAngler(time, dt) {
     const A = CONFIG.angler;
 
-    // the layer fades in once at load — the fish (when the model arrives)
-    // and the sparkles behind it emerge from the dark together
-    angler.fade = Math.min(angler.fade + dt / A.fadeIn, 1);
+    // intro hold: the fish (and the sparkle layer with it) waits in the
+    // dark until its cue, while the heart and the headline open the page
+    angler.clock += dt;
+    const waiting = angler.clock < A.intro.delay;
+
+    // then the layer fades in — the fish (when the model arrives) and the
+    // sparkles behind it emerge from the dark together
+    if (!waiting) angler.fade = Math.min(angler.fade + dt / A.fadeIn, 1);
     const e = angler.fade * angler.fade * (3 - 2 * angler.fade);
     auroraMaterial.uniforms.uBackFade.value = e;
 
@@ -1043,8 +1130,10 @@
       Math.min(dt * A.pointerEase, 1);
 
     // cruise toward the active section's station; homeZ carries the intro
-    // swim-in from the deep and then settles at the resting plane (z 0)
-    const k = Math.min(dt * A.travel.ease, 1);
+    // swim-in from the deep and then settles at the resting plane (z 0).
+    // While it waits in the dark it stays put (the heading below still runs,
+    // so it sets off already nose-first)
+    const k = waiting ? 0 : Math.min(dt * A.travel.ease, 1);
     angler.homeX += (anglerStation.x - angler.homeX) * k;
     angler.homeY += (anglerStation.y - angler.homeY) * k;
     angler.homeZ += (0 - angler.homeZ) * k;
@@ -1161,29 +1250,32 @@
 
   /* ---------- input: the mouse stirs the FLUID, not the particles ---------- */
 
-  // ink drifts slowly between aqua and violet-blue (ref: right example) —
+  // the bioluminescence drifts slowly between aqua and violet-blue —
   // a slow, coherent cycle, not per-splat randomness
-  const aquaInk = new THREE.Vector3(...CONFIG.ink.aqua);
-  const violetInk = new THREE.Vector3(...CONFIG.ink.violet);
-  const inkNow = new THREE.Vector3();
+  const aquaGlow = new THREE.Vector3(...CONFIG.biolume.aqua);
+  const violetGlow = new THREE.Vector3(...CONFIG.biolume.violet);
+  const glowNow = new THREE.Vector3();
 
-  function inkAt(timeSec, intensity) {
-    const m = 0.5 + 0.5 * Math.sin(timeSec * CONFIG.ink.cycleSpeed);
-    inkNow.copy(aquaInk).lerp(violetInk, m);
-    inkNow.addScalar(CONFIG.ink.whiteLift);
-    return inkNow.clone().multiplyScalar(intensity);
+  function biolumeAt(timeSec, intensity) {
+    const m = 0.5 + 0.5 * Math.sin(timeSec * CONFIG.biolume.cycleSpeed);
+    glowNow.copy(aquaGlow).lerp(violetGlow, m);
+    glowNow.addScalar(CONFIG.biolume.whiteLift);
+    return glowNow.clone().multiplyScalar(intensity);
   }
 
   // splats are never injected at raw pointer positions — a virtual brush
   // eases toward the cursor once per frame, so fast flicks become smooth,
-  // speed-limited strokes with the same character as the idle stirrers
+  // speed-limited strokes with the same character as the idle microbes
   let pointerTarget = null;
   const brush = { x: 0.5, y: 0.5, active: false };
 
   function onPointer(clientX, clientY) {
+    // uv on the canvas — its top can sit above the visible viewport (the
+    // bottom-anchored 100lvh box), so map through its actual client rect
+    const rect = canvas.getBoundingClientRect();
     pointerTarget = {
-      x: clientX / window.innerWidth,
-      y: 1 - clientY / window.innerHeight,
+      x: (clientX - rect.left) / rect.width,
+      y: 1 - (clientY - rect.top) / rect.height,
     };
   }
 
@@ -1197,7 +1289,7 @@
   function updateBrush(time, dt) {
     if (!fluid || !pointerTarget || dt <= 0) return;
     // the brush chases the cursor plus a small drifting orbit, so it keeps
-    // circling — and inking — even while the pointer rests
+    // circling — and emitting — even while the pointer rests
     const ot = time * CONFIG.mouse.orbitSpeed;
     const tx = pointerTarget.x + (Math.sin(ot * 1.3) + 0.5 * Math.sin(ot * 2.17)) * CONFIG.mouse.orbit;
     const ty = pointerTarget.y + (Math.cos(ot * 1.1) + 0.5 * Math.cos(ot * 1.93)) * CONFIG.mouse.orbit;
@@ -1221,42 +1313,52 @@
     if (sp < 0.01) return; // resting on the cursor — don't pile up paint
     const dx = vx * CONFIG.mouse.force * motionScale;
     const dy = vy * CONFIG.mouse.force * motionScale;
-    // pigment scales with the brush's speed, like the idle stirrers
+    // pigment scales with the brush's speed, like the idle microbes
     const speed = Math.min(Math.hypot(dx, dy) / 60, 1);
     fluid.pendingSplats.push({
       x: brush.x, y: brush.y, dx, dy,
-      color: inkAt(time, CONFIG.mouse.inkBase + CONFIG.mouse.inkGain * speed),
+      color: biolumeAt(time, CONFIG.mouse.glowBase + CONFIG.mouse.glowGain * speed),
       radius: CONFIG.mouse.radius,
     });
   }
 
-  /* ---------- idle stirrer: keeps the fluid (and swarm) alive ---------- */
+  /* ---------- idle microbe: keeps the fluid (and swarm) alive ---------- */
 
-  function stirrerPos(s, time) {
-    const t = time + s.phase;
+  function microbePos(s, time) {
+    // run-and-tumble gait: warp time so travel along the path pulses. tau'(t) =
+    // 1 - depth * cos(...) sweeps (1-depth) → (1+depth) each beat: a thrust,
+    // then a slow — but never dead — glide, so the trail never cuts out.
+    // Still a pure function of time, so the warm-up and the heart-departure
+    // blending stay valid.
+    const w = (Math.PI * 2) / (s.pulse || CONFIG.gait.period);
+    const beat = time * w + s.phase * 3.7;
+    const tau = time - CONFIG.gait.depth * Math.sin(beat) / w;
+    // the body lifts with each thrust and settles during the glide
+    const bob = -Math.cos(beat) * CONFIG.gait.rise;
+    const t = tau + s.phase;
     return [
       s.cx + Math.sin(t * s.fx) * s.ax + Math.sin(t * s.fx2) * s.ax2,
-      s.cy + Math.cos(t * s.fy) * s.ay + Math.cos(t * s.fy2) * s.ay2,
+      s.cy + Math.cos(t * s.fy) * s.ay + Math.cos(t * s.fy2) * s.ay2 + bob,
     ];
   }
 
-  // the lissajous paths never sync, but at any given moment a few stirrers
+  // the lissajous paths never sync, but at any given moment a few microbes
   // can happen to clump — scan the first minutes of the combined motion for
   // the pose where the closest pair is furthest apart, and start there
   const IDLE_TIME_OFFSET = (() => {
-    const stirrers = CONFIG.idle.stirrers;
-    const aspect = window.innerWidth / window.innerHeight;
+    const microbes = CONFIG.idle.microbes;
+    const aspect = viewW() / viewH();
     let best = 0;
     let bestScore = -1;
     for (let T = 0; T <= 300; T += 0.5) {
       let minD = Infinity;
-      // score the pose around the moment the stirrers actually arrive on
+      // score the pose around the moment the microbes actually arrive on
       // their lissajous paths — after the intro heart has dissolved and the
       // last straggler of the staggered departure has blended in
       const arrive = CONFIG.intro.hold + CONFIG.intro.blend
-        + CONFIG.intro.stagger * (stirrers.length - 1);
+        + CONFIG.intro.stagger * (microbes.length - 1);
       for (const sample of [T + arrive, T + arrive + 2, T + arrive + 4]) {
-        const pos = stirrers.map((s) => stirrerPos(s, sample));
+        const pos = microbes.map((s) => microbePos(s, sample));
         for (let i = 0; i < pos.length; i++) {
           for (let j = i + 1; j < pos.length; j++) {
             const dx = (pos[i][0] - pos[j][0]) * aspect;
@@ -1271,10 +1373,11 @@
   })();
 
   /* ---------- intro pose ----------
-     At load the stirrers sit spaced along a heart outline, slowly tracing
-     it (a static pose would dissolve — tracing keeps the line re-inked);
-     after a hold they ease onto their lissajous paths and the heart
-     dissolves into the ambient field. */
+     The microbe slots sit spaced along a heart outline and ignite one
+     after another in path order — the heart draws itself on. They trace
+     the outline slowly (a static pose would dissolve — tracing keeps the
+     line re-seeded); after a hold they ease onto their lissajous paths and
+     the heart dissolves into the ambient field. */
 
   // classic parametric heart, normalized to roughly ±1, y up
   function heartXY(a) {
@@ -1285,7 +1388,7 @@
   }
 
   // the heart parametrization stalls at the top cleft and bottom cusp, so
-  // uniform parameter steps bunch stirrers there and their dye merges into
+  // uniform parameter steps bunch microbes there and their dye merges into
   // blobs — remap through an arc-length table for even spacing on the outline
   const heartArcParam = (() => {
     const N = 512;
@@ -1311,9 +1414,9 @@
   })();
 
   /* ---------- intro pose: the heart ----------
-     At load the stirrers (and their ghosts) sit spaced along the heart
+     At load the microbes (and their ghosts) sit spaced along the heart
      outline, slowly tracing it — a static pose would dissolve, tracing
-     keeps the line re-inked. After the hold they ease onto their lissajous
+     keeps the line re-seeded. After the hold they ease onto their lissajous
      paths one by one and the heart dissolves into the ambient field. */
 
   // where intro slot uHome sits at a live time: crawling around the heart
@@ -1321,31 +1424,40 @@
   function introPoint(uHome, time) {
     const I = CONFIG.intro;
     const [hx, hy] = heartXY(heartArcParam(uHome + time * I.trace));
-    const aspect = window.innerWidth / window.innerHeight;
+    const aspect = viewW() / viewH();
     return [I.cx + (hx * I.size) / aspect, I.cy + hy * I.size];
   }
 
-  // eased 0..1 departure of stirrer i from the heart — staggered by index,
-  // so the swarm peels off the outline one stirrer at a time
+  // eased 0..1 ignition of the slot at outline position u — the reveal
+  // sweep lights the slots up in path order, so the outline appears drawn
+  // on rather than all at once
+  function introIgnite(u, time) {
+    const I = CONFIG.intro;
+    const k = Math.min(Math.max((time - u * I.reveal) / I.ignite, 0), 1);
+    return k * k * (3 - 2 * k);
+  }
+
+  // eased 0..1 departure of microbe i from the heart — staggered by index,
+  // so the swarm peels off the outline one microbe at a time
   function introEase(i, time) {
     const I = CONFIG.intro;
     const k = Math.min(Math.max((time - I.hold - i * I.stagger) / I.blend, 0), 1);
     return k * k * (3 - 2 * k);
   }
 
-  // where stirrer i actually is at a live time: on the heart during the
+  // where microbe i actually is at a live time: on the heart during the
   // intro (negative times = the warm-up's reconstructed past), on its
   // lissajous path afterwards, eased between the two
-  function stirrerLivePos(s, i, time) {
-    const heart = introPoint(i / CONFIG.idle.stirrers.length, time);
+  function microbeLivePos(s, i, time) {
+    const heart = introPoint(i / CONFIG.idle.microbes.length, time);
     const e = introEase(i, time);
     if (e <= 0) return heart;
-    const liss = stirrerPos(s, IDLE_TIME_OFFSET + time);
+    const liss = microbePos(s, IDLE_TIME_OFFSET + time);
     return [heart[0] + (liss[0] - heart[0]) * e, heart[1] + (liss[1] - heart[1]) * e];
   }
 
-  // ghost stirrer j lives at the midpoints between the real stirrers — it
-  // has no lissajous path to leave for; its ink simply fades at departure
+  // ghost microbe j lives at the midpoints between the real microbes — it
+  // has no lissajous path to leave for; its glow simply fades at departure
   function ghostLivePos(j, time) {
     return introPoint((j + 0.5) / CONFIG.intro.ghosts, time);
   }
@@ -1354,52 +1466,58 @@
   // one splat; during live frames it stays at 1
   function idleStir(time, scale = 1) {
     if (!fluid) return;
-    const stirrers = CONFIG.idle.stirrers;
+    const microbes = CONFIG.idle.microbes;
     const h = 1 / 60;
     const I = CONFIG.intro;
-    for (let i = 0; i < stirrers.length; i++) {
-      const s = stirrers[i];
-      // intro stirs run at reduced force, easing up to full as each stirrer
-      // disperses — same staggered ease as stirrerLivePos, so force, pigment
-      // and path track together per stirrer
+    for (let i = 0; i < microbes.length; i++) {
+      const s = microbes[i];
+      // each slot ignites when the reveal sweep reaches its spot on the
+      // outline — before its turn it lays down nothing at all
+      const ig = introIgnite(i / microbes.length, time);
+      if (ig <= 0) continue;
+      // intro stirs run at reduced force, easing up to full as each microbe
+      // disperses — same staggered ease as microbeLivePos, so force, pigment
+      // and path track together per microbe
       const eIntro = introEase(i, time);
-      const introForce = I.force + (1 - I.force) * eIntro;
-      const introInk = I.ink + (1 - I.ink) * eIntro;
+      const introForce = (I.force + (1 - I.force) * eIntro) * ig;
+      const introGlow = (I.glow + (1 - I.glow) * eIntro) * ig;
       // numeric path derivative — valid on the heart, the lissajous paths
       // and every eased blend in between
-      const [x, y] = stirrerLivePos(s, i, time);
-      const [px, py] = stirrerLivePos(s, i, time - h);
+      const [x, y] = microbeLivePos(s, i, time);
+      const [px, py] = microbeLivePos(s, i, time - h);
       const dx = ((x - px) / h) * CONFIG.idle.force * introForce * motionScale;
       const dy = ((y - py) / h) * CONFIG.idle.force * introForce * motionScale;
-      // pigment scales with the stirrer's speed, like the mouse strokes
+      // pigment scales with the microbe's speed, like the mouse strokes
       const speed = Math.min(Math.hypot(dx, dy) / 60, 1);
       fluid.pendingSplats.push({
         x, y, dx: dx * scale, dy: dy * scale,
-        color: inkAt(time, (CONFIG.idle.inkBase + CONFIG.idle.inkGain * speed) * scale * introInk),
+        color: biolumeAt(time, (CONFIG.idle.glowBase + CONFIG.idle.glowGain * speed) * scale * introGlow),
         radius: CONFIG.idle.radius,
       });
     }
 
-    // ghost stirrers: intro-only line thickeners. They ride the same shapes
-    // at half-slot offsets and fade out in the same staggered ripple the
-    // real stirrers leave in, instead of joining the ambient swarm.
+    // ghost microbes: intro-only line thickeners. They ride the same shapes
+    // at half-slot offsets, ignite in the same path-order sweep, and fade
+    // out in the staggered ripple the real microbes leave in, instead of
+    // joining the ambient swarm.
     for (let j = 0; j < I.ghosts; j++) {
-      const gFade = 1 - introEase(j + 0.5, time);
+      const ig = introIgnite((j + 0.5) / I.ghosts, time);
+      const gFade = (1 - introEase(j + 0.5, time)) * ig;
       if (gFade <= 0) continue;
       const [x, y] = ghostLivePos(j, time);
       const [px, py] = ghostLivePos(j, time - h);
-      const dx = ((x - px) / h) * CONFIG.idle.force * I.force * motionScale;
-      const dy = ((y - py) / h) * CONFIG.idle.force * I.force * motionScale;
+      const dx = ((x - px) / h) * CONFIG.idle.force * I.force * motionScale * ig;
+      const dy = ((y - py) / h) * CONFIG.idle.force * I.force * motionScale * ig;
       const speed = Math.min(Math.hypot(dx, dy) / 60, 1);
       fluid.pendingSplats.push({
         x, y, dx: dx * scale, dy: dy * scale,
-        color: inkAt(time, (CONFIG.idle.inkBase + CONFIG.idle.inkGain * speed) * scale * I.ink * gFade),
+        color: biolumeAt(time, (CONFIG.idle.glowBase + CONFIG.idle.glowGain * speed) * scale * I.glow * gFade),
         radius: CONFIG.idle.radius,
       });
     }
   }
 
-  /* ---------- warm-up: reconstruct the stirrers' recent past ----------
+  /* ---------- warm-up: reconstruct the microbes' recent past ----------
      The idle paths are analytic, so they can be evaluated at negative
      times: lay their last few seconds of paint down in one burst (older
      paint pre-faded by the dye dissipation rate), then let the solver
@@ -1430,15 +1548,22 @@
 
   let resizeTimer;
 
+  let lastW = viewW(), lastH = viewH();
+
   function onResize() {
-    const w = window.innerWidth;
-    const h = window.innerHeight;
+    const w = viewW();
+    const h = viewH();
+    // mobile browsers fire resize when the URL bar collapses on scroll, but
+    // the canvas layout (100lvh) hasn't changed — nothing to do then, and
+    // rebuilding anyway made the background visibly slide
+    if (w === lastW && h === lastH) return;
+    lastW = w; lastH = h;
     camera.left = w / -2;
     camera.right = w / 2;
     camera.top = h / 2;
     camera.bottom = h / -2;
     camera.updateProjectionMatrix();
-    renderer.setSize(w, h);
+    renderer.setSize(w, h, false); // buffer only — CSS owns the placement
     auroraMaterial.uniforms.uAspect.value = w / h;
 
     anglerCamera.aspect = w / h;
@@ -1481,7 +1606,7 @@
     const dist = anglerCamera.position.z - depth;
     const wh = 2 * dist * Math.tan((anglerCamera.fov * Math.PI) / 360);
     const ww = wh * anglerCamera.aspect;
-    const pxToWorld = wh / window.innerHeight; // sprite sizes stay in px terms
+    const pxToWorld = wh / viewH(); // sprite sizes stay in px terms
 
     for (let i = 0; i < COUNT; ++i) {
       const p = particles[i];
@@ -1511,7 +1636,7 @@
       if (p.y < -0.05) p.y += 1.1;
       if (p.y > 1.05) p.y -= 1.1;
 
-      // sparkles live in the ink: near-invisible outside the wisps,
+      // sparkles live in the culture: near-invisible outside the wisps,
       // twinkling bright inside them (ref: right example)
       const twinkle = 0.75 + 0.25 * Math.sin(time * p.twinkle * 2.2 + p.drift * 7.0);
       const brightness = fluid
@@ -1535,14 +1660,18 @@
 
   /* ---------- animation loop ---------- */
 
-  // TEMP perf experiment: on-screen FPS meter (real wall-clock frames,
-  // unaffected by motionScale)
-  const fpsEl = document.createElement("div");
-  fpsEl.style.cssText =
-    "position:fixed;top:70px;left:10px;z-index:9999;padding:4px 8px;" +
-    "font:12px/1.4 monospace;color:#7de8d8;background:rgba(0,0,0,0.55);" +
-    "border-radius:4px;pointer-events:none;";
-  document.body.appendChild(fpsEl);
+  // on-screen FPS meter (real wall-clock frames, unaffected by
+  // motionScale) — hidden unless the page is loaded with ?fps
+  const showFps = new URLSearchParams(location.search).has("fps");
+  let fpsEl = null;
+  if (showFps) {
+    fpsEl = document.createElement("div");
+    fpsEl.style.cssText =
+      "position:fixed;top:70px;left:10px;z-index:9999;padding:4px 8px;" +
+      "font:12px/1.4 monospace;color:#7de8d8;background:rgba(0,0,0,0.55);" +
+      "border-radius:4px;pointer-events:none;";
+    document.body.appendChild(fpsEl);
+  }
   let fpsFrames = 0;
   let fpsLast = performance.now();
 
@@ -1552,12 +1681,14 @@
     const dt = Math.min(clock.getDelta(), 1 / 30) * motionScale;
     const time = clock.getElapsedTime();
 
-    fpsFrames++;
-    const fpsNow = performance.now();
-    if (fpsNow - fpsLast >= 500) {
-      fpsEl.textContent = ((fpsFrames * 1000) / (fpsNow - fpsLast)).toFixed(1) + " fps";
-      fpsFrames = 0;
-      fpsLast = fpsNow;
+    if (fpsEl) {
+      fpsFrames++;
+      const fpsNow = performance.now();
+      if (fpsNow - fpsLast >= 500) {
+        fpsEl.textContent = ((fpsFrames * 1000) / (fpsNow - fpsLast)).toFixed(1) + " fps";
+        fpsFrames = 0;
+        fpsLast = fpsNow;
+      }
     }
 
     if (fluid) {

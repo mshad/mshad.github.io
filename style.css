@@ -116,6 +116,15 @@ strong { color: var(--text); }
   display: flex;
   align-items: center;
   justify-content: space-between;
+  /* intro choreography: the nav leads almost immediately — the rest of
+     the 2D UI waits for the heart to finish drawing (~3s) */
+  animation: nav-drop 0.7s ease 0.15s backwards;
+}
+@keyframes nav-drop {
+  from {
+    opacity: 0;
+    transform: translateY(-14px);
+  }
 }
 
 .nav__logo {
@@ -155,9 +164,16 @@ strong { color: var(--text); }
 
 .bg-canvas {
   position: fixed;
-  inset: 0;
+  /* anchored to the viewport BOTTOM, not the top: when the mobile URL bar
+     collapses on scroll, the viewport's top edge is what moves — a
+     top-anchored canvas slides with it. The bottom edge stays glued to the
+     screen, and the 100lvh height (the URL-bar-hidden viewport; 100% is
+     the fallback) already covers the strip the bar reveals. */
+  bottom: 0;
+  left: 0;
   width: 100%;
   height: 100%;
+  height: 100lvh;
   z-index: -1;
   transition: opacity 0.3s linear;
 }
@@ -228,29 +244,6 @@ strong { color: var(--text); }
   color: var(--text);
   font-size: clamp(1.05rem, 2vw, 1.2rem);
 }
-
-.hero__actions {
-  display: flex;
-  gap: 1.8rem;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.hero__contact-link {
-  font-family: var(--font-display);
-  font-weight: 500;
-  color: var(--text);
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  transition: color 0.2s ease;
-}
-.hero__contact-link span {
-  display: inline-block;
-  transition: transform 0.2s ease;
-}
-.hero__contact-link:hover { color: var(--accent); }
-.hero__contact-link:hover span { transform: translateX(5px); }
 
 .hero__footer {
   position: absolute;
@@ -488,7 +481,7 @@ strong { color: var(--text); }
   content: "";
   position: absolute;
   left: 5px;
-  top: 13px; /* start at the first dot's center (dot top 8px + half of 11px) */
+  top: 10px; /* start at the first dot's center (dot top 5px + half of 11px) */
   bottom: 6px;
   width: 1px;
   background: linear-gradient(to bottom, var(--accent), rgba(55, 226, 213, 0.05));
@@ -507,7 +500,7 @@ strong { color: var(--text); }
      so the 11px width includes the border and the dot centers on the line */
   box-sizing: border-box;
   left: -2rem;
-  top: 8px;
+  top: 5px; /* optically centers the dot on the period line's x-height */
   width: 11px;
   height: 11px;
   border-radius: 50%;
