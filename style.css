@@ -41,7 +41,10 @@ body {
   overflow-x: hidden;
 }
 
-img { max-width: 100%; display: block; }
+/* height:auto lets the width/height attributes reserve each image's
+   aspect ratio before it lazy-loads (no layout shift, anchors stay put)
+   without fixing the rendered height */
+img { max-width: 100%; height: auto; display: block; }
 
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: none; }
@@ -302,7 +305,8 @@ strong { color: var(--text); }
 
 /* ---------- Sections ---------- */
 
-.section { padding: clamp(5rem, 10vw, 8rem) 0; }
+/* scroll-margin: anchored sections stop just below the fixed nav bar */
+.section { padding: clamp(5rem, 10vw, 8rem) 0; scroll-margin-top: 3.6rem; }
 
 /* alternating backdrops below the hero: the odd sections (01/03/05) carry
    the full wash, the even ones (02/04) a lighter one, with hard cuts at
