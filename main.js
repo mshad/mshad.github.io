@@ -205,14 +205,18 @@
       // --- scroll stations: as each section scrolls into view the fish
       // swims to its spot (x/y like above; keys are section ids, page order).
       // yaw is the resting heading: 0.5 faces left toward the center,
-      // Math.PI - 0.5 is its mirror — parked on the left, looking right
+      // Math.PI - 0.5 is its mirror — parked on the left, looking right.
+      // One slow leftward drift across the whole page: each section nudges
+      // it a little further, and it only reaches the left edge at the end.
+      // The yaw turns in even fifths from 0.55 (facing left) around to its
+      // mirror Math.PI - 0.55 (facing right) as it crosses
       stations: {
         top:        { x:  0.26, y: -0.02, yaw: 0.55 },
-        work:       { x: -0.30, y:  0.06, yaw: Math.PI - 0.55 },
-        about:      { x:  0.30, y: -0.08, yaw: 0.55 },
-        experience: { x: -0.30, y:  0.02, yaw: Math.PI - 0.55 },
-        skills:     { x:  0.28, y:  0.08, yaw: 0.55 },
-        contact:    { x: -0.26, y: -0.06, yaw: Math.PI - 0.55 },
+        work:       { x:  0.16, y:  0.06, yaw: 0.55 + (Math.PI - 1.1) * 0.2 },
+        about:      { x: -0.12, y: -0.08, yaw: 0.55 + (Math.PI - 1.1) * 0.7 },
+        experience: { x: -0.12, y:  0.04, yaw: 0.55 + (Math.PI - 1.1) * 0.7 },
+        skills:     { x: -0.18, y:  -0.08, yaw: 0.55 + (Math.PI - 1.1) * 0.8 },
+        contact:    { x: -0.30, y: 0, yaw: Math.PI - 0.55 },
       },
       travel: {
         ease: 0.7,     // 1/s — cruise speed toward the new station
@@ -236,7 +240,7 @@
       roll: 0.035,   // idle roll around the view axis (radians)
       bob: 0.25,     // idle vertical bob (world units)
       // the fish turns with the pointer's horizontal position from center
-      pointerTurn: 0.3,  // extra yaw toward the cursor side (radians, ±)
+      pointerTurn: 0.6,  // extra yaw toward the cursor side (radians, ±)
       pointerEase: 0.8,   // how quickly it chases the pointer (1/s)
       drift: 0.05,   // tempo of the idle motion
       fadeIn: 2,     // seconds to emerge from the dark once its cue comes
