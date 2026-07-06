@@ -101,12 +101,11 @@ strong { color: var(--text); }
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   background: rgba(7, 11, 18, 0.55);
-  border-bottom: 1px solid transparent;
-  transition: border-color 0.3s ease, background 0.3s ease;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.3s ease;
 }
 .nav.is-scrolled {
   background: rgba(7, 11, 18, 0.82);
-  border-bottom-color: var(--border);
 }
 
 .nav__inner {
@@ -305,6 +304,34 @@ strong { color: var(--text); }
 
 .section { padding: clamp(5rem, 10vw, 8rem) 0; }
 
+/* alternating backdrops below the hero: the odd sections (01/03/05) carry
+   the full wash, the even ones (02/04) a lighter one, with hard cuts at
+   every boundary. Only the very first edge — hero into 01 — fades in
+   smoothly, over the first section's padding */
+.work {
+  background: linear-gradient(
+    to bottom,
+    rgba(13, 19, 30, 0),
+    rgba(13, 19, 30, 0.78) clamp(5rem, 10vw, 8rem)
+  );
+}
+.experience,
+.contact {
+  background: rgba(13, 19, 30, 0.78);
+}
+.about,
+.skills {
+  background: rgba(13, 19, 30, 0);
+}
+/* a fine rule at each hard cut between sections (the footer brings its
+   own) — the hero→01 fade stays borderless */
+.about,
+.experience,
+.skills,
+.contact {
+  border-top: 1px solid var(--border);
+}
+
 .section__title {
   font-family: var(--font-display);
   font-size: clamp(1.9rem, 4vw, 2.8rem);
@@ -324,8 +351,6 @@ strong { color: var(--text); }
 }
 
 /* ---------- Work / Projects ---------- */
-
-.work { background: rgba(13, 19, 30, 0.78); }
 
 .work__grid {
   display: flex;
@@ -470,8 +495,6 @@ strong { color: var(--text); }
 
 /* ---------- Experience / Timeline ---------- */
 
-.experience { background: rgba(13, 19, 30, 0.78); }
-
 .timeline {
   list-style: none;
   position: relative;
@@ -568,8 +591,6 @@ strong { color: var(--text); }
 
 /* ---------- Contact ---------- */
 
-.contact { background: rgba(13, 19, 30, 0.78); }
-
 .contact__box { text-align: center; max-width: 42rem; margin: 0 auto; }
 
 .contact__lead {
@@ -595,6 +616,9 @@ strong { color: var(--text); }
 /* ---------- Footer ---------- */
 
 .footer {
+  /* keeps the alternation going after contact (0.78): the footer takes the
+     even sections' transparent step */
+  background: rgba(13, 19, 30, 0);
   border-top: 1px solid var(--border);
   padding: 1.8rem 0;
 }
@@ -606,6 +630,9 @@ strong { color: var(--text); }
   font-size: 0.9rem;
 }
 .footer__top {
+  /* fixed circle — as a flex child it must never be squeezed by a long,
+     wrapping footer line */
+  flex: none;
   width: 40px;
   height: 40px;
   display: grid;
