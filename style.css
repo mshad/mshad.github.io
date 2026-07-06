@@ -117,7 +117,7 @@ strong { color: var(--text); }
   align-items: center;
   justify-content: space-between;
   /* intro choreography: the nav leads almost immediately — the rest of
-     the 2D UI waits for the heart to finish drawing (~3s) */
+     the 2D UI waits for the heart to finish drawing (~1.5s) */
   animation: nav-drop 0.7s ease 0.15s backwards;
 }
 @keyframes nav-drop {

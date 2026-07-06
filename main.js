@@ -36,7 +36,7 @@
       simRes: 128,       // velocity / pressure grid (short side)
       dyeRes: 256,       // dye wisps — high res for fine filaments (short side)
       readRes: 64,       // CPU readback grid for particle advection (short side)
-      speed: 1.5,       // timestep multiplier — slow, deliberate
+      speed: 1.5,        // timestep multiplier — slow, deliberate
       pressureIterations: 20,     // Jacobi solve quality (incompressibility)
       viscosityIterations: 3,     // velocity diffusion passes: the "oil paint" thickness
       viscosity: 0.5,             // drag per diffusion pass
@@ -58,25 +58,25 @@
     intro: {
       cx: 0.5,    // center of the heart (uv, y up)
       cy: 0.5,
-      size: 0.2,  // scale — roughly half the heart's height in uv
-      trace: 0.02, // how fast each microbe crawls along the outline (loops/s)
-      reveal: 2.4, // seconds for the outline to light up end to end — the
-                   // slots ignite one by one in path order, so the heart
-                   // draws itself on starting at the top cleft
-      ignite: 0.6, // each slot's fade-in once its turn on the path comes
-      hold: 3,     // seconds the heart is held before the swarm departs —
-                   // right after the reveal sweep completes (reveal + ignite)
-      blend: 2,    // seconds to ease from the outline into wandering
-      force: 0.2,  // stir velocity multiplier on the heart — all microbes circle
-                   // in step there, so full force whips up one big vortex
-      glow: 1,   // emission multiplier on the heart — the slow trace re-seeds
-                   // the same spots over and over, full dye pools into blobs
-      stagger: 0.1,  // seconds between consecutive microbes leaving the heart —
-                     // the swarm disperses one by one instead of all at once
-                     // (also paces the ghosts' fade ripple, ~ghosts×stagger)
-      ghosts: 16,    // extra intro-only microbes interleaved between the real
-                     // ones — they thicken the heart outline, then fade out
-                     // instead of swarming off
+      size: 0.2,    // scale — roughly half the heart's height in uv
+      trace: 0.05,  // how fast each microbe crawls along the outline (loops/s)
+      reveal: 1.2,  // seconds for the outline to light up end to end — the
+                    // slots ignite one by one in path order, so the heart
+                    // draws itself on starting at the top cleft
+      ignite: 0.5,  // each slot's fade-in once its turn on the path comes
+      hold: 2.5,    // seconds the heart is held before the swarm departs —
+                    // right after the reveal sweep completes (reveal + ignite)
+      blend: 2,     // seconds to ease from the outline into wandering
+      force: 0.2,   // stir velocity multiplier on the heart — all microbes circle
+                    // in step there, so full force whips up one big vortex
+      glow: 1,      // emission multiplier on the heart — the slow trace re-seeds
+                    // the same spots over and over, full dye pools into blobs
+      stagger: 0.1, // seconds between consecutive microbes leaving the heart —
+                    // the swarm disperses one by one instead of all at once
+                    // (also paces the ghosts' fade ripple, ~ghosts×stagger)
+      ghosts: 16,   // extra intro-only microbes interleaved between the real
+                    // ones — they thicken the heart outline, then fade out
+                    // instead of swarming off
     },
 
     // --- paint look: surface relief + fake lighting ---
@@ -119,14 +119,14 @@
 
     // --- mouse brush: a microbe that chases the cursor ---
     mouse: {
-      follow: 3,       // chase rate (1/s) — lower = lazier, trails further behind
+      follow: 2,       // chase rate (1/s) — lower = lazier, trails further behind
       maxSpeed: 1.8,   // uv/s cap on the brush — a fast flick can't blast the paint
       orbit: 0.02,     // wobble radius around a resting cursor — keeps dye flowing
       orbitSpeed: 0.6, // tempo of that wobble — lower = slower circling
       force: 40,       // brush velocity -> fluid velocity (same scale as idle)
       radius: 0.0002,  // same tight nib as the idle microbes
-      glowBase: 0.5,    // pigment from a slow drag
-      glowGain: 0.14,   // extra pigment from a brisk stroke
+      glowBase: 0.5,   // pigment from a slow drag
+      glowGain: 0.14,  // extra pigment from a brisk stroke
     },
 
     // --- idle microbes: keep the paint alive without input ---
@@ -158,6 +158,18 @@
         { cx: 0.42, cy: 0.78, ax: 0.10, ay: 0.08, ax2: 0.04, ay2: 0.03, fx: 0.19, fx2: 0.109, fy: 0.26, fy2: 0.081, phase: 0.3, pulse: 3.7 },
         { cx: 0.08, cy: 0.12, ax: 0.06, ay: 0.08, ax2: 0.03, ay2: 0.03, fx: 0.27, fx2: 0.103, fy: 0.23, fy2: 0.089, phase: 4.0, pulse: 3.2 },
       ],
+    },
+
+    // --- swarm: the microbes school toward the cursor ---
+    swarm: {
+      follow: 0.8, // base chase responsiveness (1/s) — how hard each microbe
+                   // steers toward the cursor once the pull is on
+      vary: 2,   // ± spread of chase rates across the swarm — leaders dart
+                   // ahead, stragglers trail behind, so the school stretches
+      spread: 2,   // how much of its own wander each microbe keeps around the
+                   // cursor — 0 stacks the whole swarm on one point
+      gather: 1.2, // seconds to ease the pull in when a pointer shows up, and
+                   // back out when it leaves (they resume wandering)
     },
 
     // --- swim gait: the microbes thrust and glide, run-and-tumble style ---
@@ -195,12 +207,12 @@
       // yaw is the resting heading: 0.5 faces left toward the center,
       // Math.PI - 0.5 is its mirror — parked on the left, looking right
       stations: {
-        top:        { x:  0.26, y: -0.02, yaw: 0.5 },
-        work:       { x: -0.30, y:  0.06, yaw: Math.PI - 0.5 },
-        about:      { x:  0.30, y: -0.08, yaw: 0.5 },
-        experience: { x: -0.30, y:  0.02, yaw: Math.PI - 0.5 },
-        skills:     { x:  0.28, y:  0.08, yaw: 0.5 },
-        contact:    { x: -0.26, y: -0.06, yaw: Math.PI - 0.5 },
+        top:        { x:  0.26, y: -0.02, yaw: 0.55 },
+        work:       { x: -0.30, y:  0.06, yaw: Math.PI - 0.55 },
+        about:      { x:  0.30, y: -0.08, yaw: 0.55 },
+        experience: { x: -0.30, y:  0.02, yaw: Math.PI - 0.55 },
+        skills:     { x:  0.28, y:  0.08, yaw: 0.55 },
+        contact:    { x: -0.26, y: -0.06, yaw: Math.PI - 0.55 },
       },
       travel: {
         ease: 0.7,     // 1/s — cruise speed toward the new station
@@ -217,14 +229,14 @@
         x: 0.55,    // start, view widths right of center
         y: 0.06,    // a touch above its hero station
         z: -18,     // world units behind the resting plane, deep in the fog
-        delay: 2.5, // seconds it holds in the dark first — the heart and the
+        delay: 2,   // seconds it holds in the dark first — the heart and the
                     // headline (index.html --d cascade) get the stage alone
       },
       sway: 0.16,    // idle yaw sway (radians)
       roll: 0.035,   // idle roll around the view axis (radians)
       bob: 0.25,     // idle vertical bob (world units)
       // the fish turns with the pointer's horizontal position from center
-      pointerTurn: 0.2,  // extra yaw toward the cursor side (radians, ±)
+      pointerTurn: 0.3,  // extra yaw toward the cursor side (radians, ±)
       pointerEase: 0.8,   // how quickly it chases the pointer (1/s)
       drift: 0.05,   // tempo of the idle motion
       fadeIn: 2,     // seconds to emerge from the dark once its cue comes
@@ -1462,6 +1474,37 @@
     return introPoint((j + 0.5) / CONFIG.intro.ghosts, time);
   }
 
+  /* ---------- swarm: the microbes school toward the cursor ----------
+     Each microbe chases its own smoothed copy of the pointer (per-microbe
+     rates → leaders and stragglers) and blends toward it with an eased
+     0..1 pull. The pull only engages once a microbe has left the intro
+     heart, and decays when the pointer leaves, so the lissajous wander —
+     still a pure function of time — remains the resting behaviour. */
+
+  const swarmState = CONFIG.idle.microbes.map((s, i) => {
+    // deterministic golden-ratio jitter — no Math.random, same swarm every load
+    const frac = (i * 0.618 + 0.31) % 1;
+    return {
+      x: 0.5, y: 0.5, f: 0,    // chased cursor point + eased pull
+      px: 0.5, py: 0.5, pf: 0, // previous frame's state, for the splat velocity
+      rate: CONFIG.swarm.follow * (1 + CONFIG.swarm.vary * (frac - 0.5)),
+    };
+  });
+
+  // where microbe i sits once the swarm pull is applied: its own wander
+  // pattern re-centred on its chased cursor point and scaled down, so the
+  // school keeps its individual wiggle instead of stacking on one spot.
+  // The x offset is aspect-corrected (like introPoint), so the cloud stays
+  // round on any screen instead of stretching with the uv square
+  function swarmWarp(s, time, base, cx, cy, f) {
+    if (f <= 0.001) return base;
+    const liss = microbePos(s, IDLE_TIME_OFFSET + time);
+    const aspect = viewW() / viewH();
+    const tx = cx + ((liss[0] - s.cx) * CONFIG.swarm.spread) / aspect;
+    const ty = cy + (liss[1] - s.cy) * CONFIG.swarm.spread;
+    return [base[0] + (tx - base[0]) * f, base[1] + (ty - base[1]) * f];
+  }
+
   // scale > 1 lets the warm-up compress many frames' worth of stirring into
   // one splat; during live frames it stays at 1
   function idleStir(time, scale = 1) {
@@ -1481,12 +1524,37 @@
       const eIntro = introEase(i, time);
       const introForce = (I.force + (1 - I.force) * eIntro) * ig;
       const introGlow = (I.glow + (1 - I.glow) * eIntro) * ig;
+      // swarm pull — advanced on live frames only (scale 1), so warm-up
+      // reconstruction stays a pure function of time
+      const sw = swarmState[i];
+      if (scale === 1) {
+        sw.px = sw.x; sw.py = sw.y; sw.pf = sw.f;
+        // the pull eases in while a pointer is present (gated by the intro
+        // departure, so nothing tugs on the heart) and back out when it leaves
+        const want = pointerTarget ? eIntro : 0;
+        sw.f += (want - sw.f) * (1 - Math.exp(-h / CONFIG.swarm.gather));
+        if (pointerTarget) {
+          const k = 1 - Math.exp(-h * sw.rate);
+          sw.x += (pointerTarget.x - sw.x) * k;
+          sw.y += (pointerTarget.y - sw.y) * k;
+        }
+      }
       // numeric path derivative — valid on the heart, the lissajous paths
-      // and every eased blend in between
-      const [x, y] = microbeLivePos(s, i, time);
-      const [px, py] = microbeLivePos(s, i, time - h);
-      const dx = ((x - px) / h) * CONFIG.idle.force * introForce * motionScale;
-      const dy = ((y - py) / h) * CONFIG.idle.force * introForce * motionScale;
+      // and every eased blend in between; the previous sample uses last
+      // frame's swarm state, so the chase itself pushes fluid too
+      const [x, y] = swarmWarp(s, time, microbeLivePos(s, i, time), sw.x, sw.y, sw.f);
+      const [px, py] = swarmWarp(s, time - h, microbeLivePos(s, i, time - h), sw.px, sw.py, sw.pf);
+      // cap the chase speed like the brush — a fast flick tugs the whole
+      // school, and 16 uncapped splats at once would blast the paint
+      let vx = (x - px) / h;
+      let vy = (y - py) / h;
+      const vsp = Math.hypot(vx, vy);
+      if (vsp > CONFIG.mouse.maxSpeed) {
+        vx *= CONFIG.mouse.maxSpeed / vsp;
+        vy *= CONFIG.mouse.maxSpeed / vsp;
+      }
+      const dx = vx * CONFIG.idle.force * introForce * motionScale;
+      const dy = vy * CONFIG.idle.force * introForce * motionScale;
       // pigment scales with the microbe's speed, like the mouse strokes
       const speed = Math.min(Math.hypot(dx, dy) / 60, 1);
       fluid.pendingSplats.push({
