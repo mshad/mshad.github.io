@@ -484,17 +484,12 @@ strong { color: var(--text); }
 .about__photo-wrap { position: relative; }
 .about__photo {
   border-radius: var(--radius);
-  border: 1px solid var(--border);
+  /* the accent outline sits directly on the photo. Opaque on purpose: the
+     section is transparent over the animated canvas, and a semi-transparent
+     line lets the moving glow bleed through and flicker. This is the tag
+     pills' 55%-alpha turquoise pre-blended onto the page background. */
+  border: 1px solid #248583;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
-}
-.about__photo-wrap::after {
-  content: "";
-  position: absolute;
-  inset: 14px -14px -14px 14px;
-  border: 1px solid var(--accent);
-  border-radius: var(--radius);
-  opacity: 0.35;
-  z-index: -1;
 }
 
 /* ---------- Experience / Timeline ---------- */
@@ -662,6 +657,21 @@ strong { color: var(--text); }
 .reveal.is-visible {
   opacity: 1;
   transform: none;
+}
+
+/* ---------- Performance tiers ----------
+   main.js stamps the active quality tier on <html> (tier-high / tier-mid /
+   tier-low — device guess plus a live FPS governor). Low tier: backdrop
+   blur re-filters everything behind the nav every frame on weak mobile
+   GPUs — swap it for a slightly more opaque flat backdrop instead. */
+
+.tier-low .nav {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background: rgba(7, 11, 18, 0.85);
+}
+.tier-low .nav.is-scrolled {
+  background: rgba(7, 11, 18, 0.94);
 }
 
 /* ---------- Responsive ---------- */

@@ -31,6 +31,61 @@
      ============================================================ */
 
   const CONFIG = {
+    // --- performance tiers: every dial the quality governor may trade ---
+    // The active tier overwrites the matching sim dials below (`high`
+    // mirrors their base values). The initial tier is guessed from device
+    // signals; a rolling FPS governor then steps it down under sustained
+    // slowness — and back up under sustained headroom, until the first
+    // downgrade proves the ceiling and locks upgrades out.
+    // Force a tier with ?tier=low|mid|high; watch it live with ?fps.
+    perf: {
+      order: ["high", "mid", "low"],
+      tiers: {
+        high: {
+          pixelRatio: 1.5,  // cap on devicePixelRatio for every buffer
+          simRes: 128, dyeRes: 256, readRes: 64,       // fluid grids
+          pressureIterations: 20, viscosityIterations: 3,
+          simInterval: 1,   // solver steps every Nth frame (splats accumulate)
+          anglerScale: 1,   // fish target resolution, fraction of the canvas
+          anglerMsaa: 4,    // MSAA samples on the fish target
+          anisotropy: 8,    // texture sharpness at the fish's grazing angles
+          particles: 196,   // sparkles drawn (of the allocated pool)
+          fbmOctaves: 5,    // background depth-noise octaves
+        },
+        mid: {
+          pixelRatio: 1.1,
+          simRes: 112, dyeRes: 192, readRes: 64,
+          pressureIterations: 14, viscosityIterations: 2,
+          simInterval: 1,
+          anglerScale: 0.75,
+          anglerMsaa: 2,
+          anisotropy: 4,
+          particles: 140,
+          fbmOctaves: 4,
+        },
+        low: {
+          pixelRatio: 0.85,
+          simRes: 88, dyeRes: 144, readRes: 48,
+          pressureIterations: 9, viscosityIterations: 1,
+          simInterval: 2,  // the paint updates at half rate; motion on top stays 60
+          anglerScale: 0.5,
+          anglerMsaa: 0,
+          anisotropy: 2,
+          particles: 90,
+          fbmOctaves: 3,
+        },
+      },
+      // --- the governor ---
+      fpsDown: 45,    // a window averaging below this counts as slow
+      fpsUp: 57,      // a window averaging above this counts as headroom
+      window: 2,      // seconds per measurement window
+      grace: 5,       // seconds ignored after load and after every switch —
+                      // the intro (heart, fade-ins, model decode) is the
+                      // busiest stretch and must not trigger a downgrade
+      downWindows: 2, // consecutive slow windows before stepping down
+      upWindows: 4,   // consecutive fast windows before stepping up
+    },
+
     // --- fluid solver ---
     sim: {
       simRes: 128,       // velocity / pressure grid (short side)
@@ -253,13 +308,9 @@
         specular: 0x2a3038, // specular tint — dim, cool grey = wet-but-matte
         glossiness: 0,   // 0 = matte, 1 = mirror-sharp highlight
       },
-      // --- render quality ---
-      quality: {
-        anisotropy: 8, // texture sharpness at grazing angles — the fish sits
-                       // yawed, so plain trilinear smears its flank (GPU-capped)
-        msaa: 4,       // MSAA samples on the offscreen fish target; its
-                       // silhouette is the page's only hard geometric edge
-      },
+      // render quality (anisotropy, MSAA) lives in CONFIG.perf.tiers —
+      // the fish is the page's only hard geometric edge, so it's the
+      // first thing the governor trades under load
       // the lantern: a glow sprite + point light at the lure bulb
       glow: {
         color: 0xd8c878, // gloomy bioluminescent yellow
@@ -285,12 +336,49 @@
   // into the shader source at startup, they are not live uniforms
   const fl = (x) => (String(x).includes(".") ? String(x) : x + ".0");
 
+  /* ---------- performance tier (dials in CONFIG.perf) ---------- */
+
+  const PERF = (() => {
+    const q = new URLSearchParams(location.search).get("tier");
+    if (q && CONFIG.perf.tiers[q]) return { name: q, locked: true };
+    // initial guess from device signals; the FPS governor corrects it live.
+    // deviceMemory is Chrome-only (≤4 flags the budget-Android range that
+    // needs this most) — browsers that hide it are assumed roomy
+    const coarse = window.matchMedia("(pointer: coarse)").matches;
+    const mem = navigator.deviceMemory || 8;
+    const cores = navigator.hardwareConcurrency || 8;
+    if (coarse && (mem <= 4 || cores <= 4)) return { name: "low", locked: false };
+    if (coarse || mem <= 4) return { name: "mid", locked: false };
+    return { name: "high", locked: false };
+  })();
+
+  // point CONFIG.sim at the tier's grids/iterations — the solver reads the
+  // iteration counts live each step, the grid sizes on (re)build
+  function adoptTier(name) {
+    PERF.name = name;
+    PERF.tier = CONFIG.perf.tiers[name];
+    const t = PERF.tier;
+    CONFIG.sim.simRes = t.simRes;
+    CONFIG.sim.dyeRes = t.dyeRes;
+    CONFIG.sim.readRes = t.readRes;
+    CONFIG.sim.pressureIterations = t.pressureIterations;
+    CONFIG.sim.viscosityIterations = t.viscosityIterations;
+    // expose the tier to the stylesheet (e.g. .tier-low drops backdrop blur)
+    const cl = document.documentElement.classList;
+    CONFIG.perf.order.forEach((n) => cl.remove("tier-" + n));
+    cl.add("tier-" + name);
+  }
+  adoptTier(PERF.name);
+
+  const tierPixelRatio = () =>
+    Math.min(window.devicePixelRatio || 1, PERF.tier.pixelRatio);
+
   /* ---------- renderer / scene / camera ---------- */
 
   // no MSAA: the scene is a fullscreen quad + soft alpha sprites, so there
   // are no geometric edges to smooth — multisampling would only cost bandwidth
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+  renderer.setPixelRatio(tierPixelRatio());
   // updateStyle false: the stylesheet alone places and sizes the canvas
   // (fixed, bottom-anchored, 100lvh) — setSize only allocates the buffer.
   // Inline px styles would override the CSS and re-pin it to the moving
@@ -850,6 +938,7 @@
       uVelocity: { value: null },
       uDyeTexel: { value: fluid ? fluid.dyeTexel.clone() : new THREE.Vector2(1 / CONFIG.sim.dyeRes, 1 / CONFIG.sim.dyeRes) },
       uHasFluid: { value: fluid ? 1 : 0 },
+      uOctaves: { value: PERF.tier.fbmOctaves },
       uRamp: { value: makeRampTexture(CONFIG.paint.rampColors) },
       uHeight: { value: null },
       uBump: { value: CONFIG.paint.bump },
@@ -866,6 +955,7 @@
       uniform sampler2D uVelocity;
       uniform vec2 uDyeTexel;
       uniform float uHasFluid;
+      uniform int uOctaves;
       uniform sampler2D uRamp;
       uniform sampler2D uHeight;
       uniform float uBump;
@@ -887,11 +977,14 @@
         );
       }
 
+      // octave count follows the perf tier — the depth layer is faint, so
+      // dropped octaves are far cheaper than they are visible
       float fbm(vec2 p) {
         float v = 0.0;
         float a = 0.5;
         mat2 rot = mat2(0.8, 0.6, -0.6, 0.8);
         for (int i = 0; i < 5; i++) {
+          if (i >= uOctaves) break;
           v += a * noise(p);
           p = rot * p * 2.05 + vec2(3.7);
           a *= 0.5;
@@ -1026,14 +1119,25 @@
   );
   anglerCamera.position.set(0, 0, 30);
 
-  const anglerRT = new THREE.WebGLRenderTarget(
-    Math.round(viewW() * renderer.getPixelRatio()),
-    Math.round(viewH() * renderer.getPixelRatio())
-  );
-  // WebGL2: multisample the fish's target — the main renderer runs without
-  // MSAA on purpose (all soft sprites), but the fish is real geometry and
-  // its silhouette aliases without it
-  if (renderer.capabilities.isWebGL2) anglerRT.samples = CONFIG.angler.quality.msaa;
+  // the fish's target runs at a tier-scaled resolution — it sits behind the
+  // paint, fogged and flow-warped, so on weak GPUs half res reads as depth,
+  // not as blur. WebGL2 gets MSAA on it (per tier): the main renderer runs
+  // without MSAA on purpose (all soft sprites), but the fish is real
+  // geometry and its silhouette aliases without it
+  const anglerRTSize = () => {
+    const pr = renderer.getPixelRatio() * PERF.tier.anglerScale;
+    return {
+      w: Math.max(1, Math.round(viewW() * pr)),
+      h: Math.max(1, Math.round(viewH() * pr)),
+    };
+  };
+  function makeAnglerRT() {
+    const s = anglerRTSize();
+    const rt = new THREE.WebGLRenderTarget(s.w, s.h);
+    if (renderer.capabilities.isWebGL2) rt.samples = PERF.tier.anglerMsaa;
+    return rt;
+  }
+  let anglerRT = makeAnglerRT();
   auroraMaterial.uniforms.uBack.value = anglerRT.texture;
 
   // moody deep-sea light: cold ambient plus a key from the upper left that
@@ -1069,10 +1173,11 @@
           // texture filtering: the asset already asks for trilinear
           // mipmapping, but anisotropy defaults to 1, which smears the
           // texture at the fish's grazing angles — raise it on every slot
+          // (per perf tier; setAnglerTextureQuality re-applies on a switch)
           for (const slot of ["map", "specularMap", "glossinessMap", "normalMap", "emissiveMap", "aoMap"]) {
             const tex = mat[slot];
             if (!tex) continue;
-            tex.anisotropy = Math.min(A.quality.anisotropy, maxAniso);
+            tex.anisotropy = Math.min(PERF.tier.anisotropy, maxAniso);
             tex.minFilter = THREE.LinearMipmapLinearFilter;
             tex.generateMipmaps = true;
             tex.needsUpdate = true;
@@ -1125,6 +1230,22 @@
       undefined,
       (err) => console.warn("anglerfish failed to load — background stays empty:", err)
     );
+  }
+
+  // re-apply the tier's texture anisotropy to the loaded model — called by
+  // the governor when it switches tiers (no-op until the model arrives)
+  function setAnglerTextureQuality() {
+    if (!angler.root) return;
+    const maxAniso = renderer.capabilities.getMaxAnisotropy();
+    angler.root.traverse((o) => {
+      if (!o.isMesh) return;
+      for (const slot of ["map", "specularMap", "glossinessMap", "normalMap", "emissiveMap", "aoMap"]) {
+        const tex = o.material[slot];
+        if (!tex) continue;
+        tex.anisotropy = Math.min(PERF.tier.anisotropy, maxAniso);
+        tex.needsUpdate = true;
+      }
+    });
   }
 
   function updateAngler(time, dt) {
@@ -1194,6 +1315,12 @@
       }
     }
 
+    // while the layer is fully faded out (the intro hold) the composite
+    // multiplies it away anyway — skip the offscreen pass; render targets
+    // start out zeroed, so the aurora shader samples harmless transparency.
+    // This frees fill rate for exactly the seconds the page is busiest.
+    if (e <= 0) return;
+
     renderer.setRenderTarget(anglerRT);
     renderer.setClearColor(0x000000, 0); // transparent where there is no fish
     renderer.clear();
@@ -1242,6 +1369,9 @@
   );
   instancedMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   instancedMesh.frustumCulled = false;
+  // the pool is allocated at full size; the perf tier decides how many
+  // instances are actually simulated and drawn
+  instancedMesh.count = Math.min(PERF.tier.particles, COUNT);
   // the sparkles render in the angler layer, at a depth behind the fish —
   // its body genuinely occludes them, and the paint dims them like the fish
   anglerScene.add(instancedMesh);
@@ -1296,7 +1426,7 @@
   }
 
   window.addEventListener("mousemove", (e) => onPointer(e.clientX, e.clientY));
-  window.addEventListener("touchmove", (e) => onPointer(e.touches[0].clientX, e.touches[0].clientY));
+  window.addEventListener("touchmove", (e) => onPointer(e.touches[0].clientX, e.touches[0].clientY), { passive: true });
   window.addEventListener("mouseleave", () => {
     pointerTarget = null;
     brush.active = false;
@@ -1640,8 +1770,8 @@
 
     anglerCamera.aspect = w / h;
     anglerCamera.updateProjectionMatrix();
-    const pr = renderer.getPixelRatio();
-    anglerRT.setSize(Math.round(w * pr), Math.round(h * pr));
+    const rtSize = anglerRTSize();
+    anglerRT.setSize(rtSize.w, rtSize.h);
 
     // grids are allocated for the current aspect ratio — rebuild them
     // (debounced) and copy the old paint over so nothing visibly resets
@@ -1680,7 +1810,8 @@
     const ww = wh * anglerCamera.aspect;
     const pxToWorld = wh / viewH(); // sprite sizes stay in px terms
 
-    for (let i = 0; i < COUNT; ++i) {
+    const active = instancedMesh.count; // per perf tier
+    for (let i = 0; i < active; ++i) {
       const p = particles[i];
       let dyeHere = 0;
 
@@ -1730,6 +1861,81 @@
     instancedMesh.instanceColor.needsUpdate = true;
   }
 
+  /* ---------- adaptive quality governor (dials in CONFIG.perf) ----------
+     Rolling FPS windows; sustained slowness steps the tier down, rebuilding
+     everything in place (the paint survives via seedFrom, like a resize).
+     Sustained headroom steps back up — until the first downgrade proves the
+     device's ceiling and locks upgrades out, so it can't oscillate. */
+
+  function applyTier(name) {
+    adoptTier(name);
+    const t = PERF.tier;
+    renderer.setPixelRatio(tierPixelRatio());
+    renderer.setSize(viewW(), viewH(), false);
+    anglerRT.dispose();
+    anglerRT = makeAnglerRT(); // MSAA sample count is baked in — recreate
+    auroraMaterial.uniforms.uBack.value = anglerRT.texture;
+    auroraMaterial.uniforms.uOctaves.value = t.fbmOctaves;
+    instancedMesh.count = Math.min(t.particles, COUNT);
+    setAnglerTextureQuality();
+    if (fluidSupported && fluid) {
+      const prev = fluid;
+      fluid = createFluid(); // reads the tier's grid sizes off CONFIG.sim
+      fluid.seedFrom(prev);
+      prev.dispose();
+      auroraMaterial.uniforms.uDyeTexel.value.copy(fluid.dyeTexel);
+    }
+  }
+
+  const GOV = {
+    idx: CONFIG.perf.order.indexOf(PERF.name),
+    winStart: performance.now(),
+    frames: 0,
+    slow: 0,
+    fast: 0,
+    graceUntil: performance.now() + CONFIG.perf.grace * 1000,
+    canUpgrade: true,
+  };
+
+  function govern(now) {
+    if (PERF.locked) return; // ?tier= pins the tier for testing
+    GOV.frames++;
+    const span = now - GOV.winStart;
+    if (span < CONFIG.perf.window * 1000) return;
+    const fps = (GOV.frames * 1000) / span;
+    // a backgrounded tab stretches the window without frames — discard it
+    const valid = span < CONFIG.perf.window * 3000;
+    GOV.winStart = now;
+    GOV.frames = 0;
+    if (!valid || now < GOV.graceUntil) {
+      GOV.slow = 0;
+      GOV.fast = 0;
+      return;
+    }
+    const order = CONFIG.perf.order;
+    if (fps < CONFIG.perf.fpsDown) {
+      GOV.fast = 0;
+      if (++GOV.slow >= CONFIG.perf.downWindows && GOV.idx < order.length - 1) {
+        GOV.idx++;
+        GOV.slow = 0;
+        GOV.canUpgrade = false; // the ceiling is known — never bounce back up
+        GOV.graceUntil = now + CONFIG.perf.grace * 1000;
+        applyTier(order[GOV.idx]);
+      }
+    } else if (fps > CONFIG.perf.fpsUp && GOV.canUpgrade && GOV.idx > 0) {
+      GOV.slow = 0;
+      if (++GOV.fast >= CONFIG.perf.upWindows) {
+        GOV.idx--;
+        GOV.fast = 0;
+        GOV.graceUntil = now + CONFIG.perf.grace * 1000;
+        applyTier(order[GOV.idx]);
+      }
+    } else {
+      GOV.slow = 0;
+      GOV.fast = 0;
+    }
+  }
+
   /* ---------- animation loop ---------- */
 
   // on-screen FPS meter (real wall-clock frames, unaffected by
@@ -1749,15 +1955,25 @@
 
   const clock = new THREE.Clock();
 
+  // on low tiers the solver runs every Nth frame with the accumulated
+  // timestep — splats keep landing every frame, so strokes stay intact and
+  // only the paint's update rate drops, not the motion drawn on top of it
+  let simAccum = 0;
+  let simSkip = 0;
+
   function frame() {
     const dt = Math.min(clock.getDelta(), 1 / 30) * motionScale;
     const time = clock.getElapsedTime();
+
+    govern(performance.now());
 
     if (fpsEl) {
       fpsFrames++;
       const fpsNow = performance.now();
       if (fpsNow - fpsLast >= 500) {
-        fpsEl.textContent = ((fpsFrames * 1000) / (fpsNow - fpsLast)).toFixed(1) + " fps";
+        fpsEl.textContent =
+          ((fpsFrames * 1000) / (fpsNow - fpsLast)).toFixed(1) +
+          " fps · " + PERF.name;
         fpsFrames = 0;
         fpsLast = fpsNow;
       }
@@ -1766,7 +1982,13 @@
     if (fluid) {
       idleStir(time);
       updateBrush(time, dt);
-      fluid.step(dt * CONFIG.sim.speed);
+      simAccum += dt * CONFIG.sim.speed;
+      if (++simSkip >= PERF.tier.simInterval) {
+        fluid.step(Math.min(simAccum, CONFIG.sim.speed / 15));
+        simAccum = 0;
+        simSkip = 0;
+      }
+      // re-bound every frame — the governor may have rebuilt the fluid
       auroraMaterial.uniforms.uDye.value = fluid.dye.read.texture;
       auroraMaterial.uniforms.uVelocity.value = fluid.velocity.read.texture;
       auroraMaterial.uniforms.uHeight.value = fluid.height.texture;
