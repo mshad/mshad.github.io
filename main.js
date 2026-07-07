@@ -180,7 +180,7 @@
       orbitSpeed: 0.6, // tempo of that wobble — lower = slower circling
       force: 40,       // brush velocity -> fluid velocity (same scale as idle)
       radius: 0.0002,  // same tight nib as the idle microbes
-      glowBase: 0.5,   // pigment from a slow drag
+      glowBase: 1,   // pigment from a slow drag
       glowGain: 0.14,  // extra pigment from a brisk stroke
     },
 
@@ -188,7 +188,7 @@
     idle: {
       force: 30,
       radius: 0.0002,
-      glowBase: 0.5,
+      glowBase: 1,
       glowGain: 0.14,
       // sixteen wandering lissajous points — a loose culture of microbes
       // spread across the whole canvas, the first biased right of the hero
@@ -1456,10 +1456,14 @@
     }
     brush.x += vx * dt;
     brush.y += vy * dt;
-    if (sp < 0.01) return; // resting on the cursor — don't pile up paint
     const dx = vx * CONFIG.mouse.force * motionScale;
     const dy = vy * CONFIG.mouse.force * motionScale;
-    // pigment scales with the brush's speed, like the idle microbes
+    // pigment scales with the brush's speed, like the idle microbes — and
+    // always emits: a hard low-speed cutoff here used to skip the splat
+    // whenever the chase dipped near zero (a slow mouse, or the idle orbit
+    // crossing zero), and with dye fading at dyeDissipation per step the
+    // blob visibly dissolved. The orbit wobble keeps a resting brush moving
+    // enough that the paint doesn't pool on a single spot.
     const speed = Math.min(Math.hypot(dx, dy) / 60, 1);
     fluid.pendingSplats.push({
       x: brush.x, y: brush.y, dx, dy,
