@@ -49,6 +49,8 @@
           anglerScale: 1,   // fish target resolution, fraction of the canvas
           anglerMsaa: 4,    // MSAA samples on the fish target
           anisotropy: 8,    // texture sharpness at the fish's grazing angles
+                            // (applied once at load — a live switch would
+                            // re-upload the textures, black on Android)
           particles: 196,   // sparkles drawn (of the allocated pool)
           fbmOctaves: 5,    // background depth-noise octaves
         },
@@ -308,9 +310,9 @@
         specular: 0x2a3038, // specular tint — dim, cool grey = wet-but-matte
         glossiness: 0,   // 0 = matte, 1 = mirror-sharp highlight
       },
-      // render quality (anisotropy, MSAA) lives in CONFIG.perf.tiers —
-      // the fish is the page's only hard geometric edge, so it's the
-      // first thing the governor trades under load
+      // render quality (anisotropy at load, MSAA + scale live) is set in
+      // CONFIG.perf.tiers — the fish is the page's only hard geometric
+      // edge, so it's the first thing the governor trades under load
       // the lantern: a glow sprite + point light at the lure bulb
       glow: {
         color: 0xd8c878, // gloomy bioluminescent yellow
@@ -1172,8 +1174,12 @@
           if (mat.glossiness !== undefined) mat.glossiness = M.glossiness;
           // texture filtering: the asset already asks for trilinear
           // mipmapping, but anisotropy defaults to 1, which smears the
-          // texture at the fish's grazing angles — raise it on every slot
-          // (per perf tier; setAnglerTextureQuality re-applies on a switch)
+          // texture at the fish's grazing angles — raise it on every slot.
+          // Set ONCE, from the load-time tier, and never touched again:
+          // changing anisotropy needs needsUpdate = a full re-upload, and
+          // re-uploading these ImageBitmap-backed GLTF textures turns them
+          // black on Android Chrome (the body loses its maps while the
+          // untextured teeth keep shading)
           for (const slot of ["map", "specularMap", "glossinessMap", "normalMap", "emissiveMap", "aoMap"]) {
             const tex = mat[slot];
             if (!tex) continue;
@@ -1232,21 +1238,11 @@
     );
   }
 
-  // re-apply the tier's texture anisotropy to the loaded model — called by
-  // the governor when it switches tiers (no-op until the model arrives)
-  function setAnglerTextureQuality() {
-    if (!angler.root) return;
-    const maxAniso = renderer.capabilities.getMaxAnisotropy();
-    angler.root.traverse((o) => {
-      if (!o.isMesh) return;
-      for (const slot of ["map", "specularMap", "glossinessMap", "normalMap", "emissiveMap", "aoMap"]) {
-        const tex = o.material[slot];
-        if (!tex) continue;
-        tex.anisotropy = Math.min(PERF.tier.anisotropy, maxAniso);
-        tex.needsUpdate = true;
-      }
-    });
-  }
+  // NOTE deliberately NO re-apply of texture anisotropy on a tier switch:
+  // it would need tex.needsUpdate = true, and re-uploading the fish's
+  // ImageBitmap-backed textures blacks them out on Android Chrome. The
+  // model keeps whatever the load-time tier picked; the fill-rate dials
+  // (anglerScale, MSAA, pixelRatio) carry the real savings.
 
   function updateAngler(time, dt) {
     const A = CONFIG.angler;
@@ -1881,7 +1877,6 @@
     auroraMaterial.uniforms.uBack.value = anglerRT.texture;
     auroraMaterial.uniforms.uOctaves.value = t.fbmOctaves;
     instancedMesh.count = Math.min(t.particles, COUNT);
-    setAnglerTextureQuality();
     if (fluidSupported && fluid) {
       const prev = fluid;
       fluid = createFluid(); // reads the tier's grid sizes off CONFIG.sim
