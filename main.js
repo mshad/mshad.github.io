@@ -352,7 +352,7 @@
         x: 0.55,    // start, view widths right of center
         y: 0.06,    // a touch above its hero station
         z: -18,     // world units behind the resting plane, deep in the fog
-        delay: 0.5,   // seconds it holds in the dark first — the heart and the
+        delay: 1,   // seconds it holds in the dark first — the heart and the
                     // headline (index.html --d cascade) get the stage alone
       },
       sway: 0.16,    // idle yaw sway (radians)
