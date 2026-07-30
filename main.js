@@ -9,16 +9,14 @@
 
 (function pageUI() {
   const revealEls = document.querySelectorAll(".reveal");
-  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-  if ("IntersectionObserver" in window && !reducedMotion) {
-    revealEls.forEach((el) => el.classList.add("reveal-pending"));
+  // Commit the hidden reveal state before adding is-visible.
+  if (revealEls.length) void revealEls[0].offsetWidth;
+  if ("IntersectionObserver" in window) {
     const io = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
           if (!entry.isIntersecting) continue;
           entry.target.classList.add("is-visible");
-          entry.target.classList.remove("reveal-pending");
           io.unobserve(entry.target);
         }
       },
@@ -26,10 +24,7 @@
     );
     revealEls.forEach((el) => {
       if (el.closest(".hero")) {
-        requestAnimationFrame(() => {
-          el.classList.add("is-visible");
-          el.classList.remove("reveal-pending");
-        });
+        el.classList.add("is-visible");
       } else {
         io.observe(el);
       }
@@ -84,10 +79,7 @@
     return;
   }
 
-  // With reduced motion preferred (e.g. Windows animation effects off) we
-  // don't freeze the centerpiece — we run it calmer and slower instead.
-  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const motionScale = reducedMotion ? 0.4 : 1;
+  const motionScale = 1;
 
   // layout size of the fixed canvas — measured from the element, not from
   // window.innerHeight. Its CSS height is 100lvh, which mobile browsers
@@ -360,7 +352,7 @@
         x: 0.55,    // start, view widths right of center
         y: 0.06,    // a touch above its hero station
         z: -18,     // world units behind the resting plane, deep in the fog
-        delay: 2,   // seconds it holds in the dark first — the heart and the
+        delay: 0.5,   // seconds it holds in the dark first — the heart and the
                     // headline (index.html --d cascade) get the stage alone
       },
       sway: 0.16,    // idle yaw sway (radians)
