@@ -5,10 +5,80 @@
    of them); sparkles ride the velocity field like drifting plankton.
    ============================================================ */
 
+/* ---------- Resilient page UI (independent of WebGL) ---------- */
+
+(function pageUI() {
+  const revealEls = document.querySelectorAll(".reveal");
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  if ("IntersectionObserver" in window && !reducedMotion) {
+    revealEls.forEach((el) => el.classList.add("reveal-pending"));
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          entry.target.classList.add("is-visible");
+          entry.target.classList.remove("reveal-pending");
+          io.unobserve(entry.target);
+        }
+      },
+      { threshold: 0.12, rootMargin: "0px 0px -40px 0px" }
+    );
+    revealEls.forEach((el) => {
+      if (el.closest(".hero")) {
+        requestAnimationFrame(() => {
+          el.classList.add("is-visible");
+          el.classList.remove("reveal-pending");
+        });
+      } else {
+        io.observe(el);
+      }
+    });
+  } else {
+    revealEls.forEach((el) => el.classList.add("is-visible"));
+  }
+
+  const nav = document.getElementById("nav");
+  const toggle = nav && nav.querySelector(".nav__toggle");
+  const menu = document.getElementById("primary-navigation");
+  const closeMenu = () => {
+    if (!toggle || !menu) return;
+    toggle.setAttribute("aria-expanded", "false");
+    toggle.querySelector(".sr-only").textContent = "Open navigation";
+    menu.classList.remove("is-open");
+  };
+
+  if (toggle && menu) {
+    nav.classList.add("nav-menu-ready");
+    toggle.addEventListener("click", () => {
+      const open = toggle.getAttribute("aria-expanded") !== "true";
+      toggle.setAttribute("aria-expanded", String(open));
+      toggle.querySelector(".sr-only").textContent = open ? "Close navigation" : "Open navigation";
+      menu.classList.toggle("is-open", open);
+    });
+    menu.addEventListener("click", (event) => {
+      if (event.target.closest("a")) closeMenu();
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        closeMenu();
+        toggle.focus();
+      }
+    });
+    window.addEventListener("resize", () => {
+      if (window.innerWidth > 860) closeMenu();
+    });
+  }
+
+  const updateNav = () => nav && nav.classList.toggle("is-scrolled", window.scrollY > 30);
+  window.addEventListener("scroll", updateNav, { passive: true });
+  updateNav();
+})();
 (function background3D() {
   const canvas = document.getElementById("bg-canvas");
 
-  if (!window.THREE) {
+  try {
+    if (!window.THREE) {
     canvas.style.background =
       "radial-gradient(ellipse at 50% 120%, #0e2233 0%, #070b12 70%)";
     return;
@@ -380,6 +450,11 @@
   // no MSAA: the scene is a fullscreen quad + soft alpha sprites, so there
   // are no geometric edges to smooth — multisampling would only cost bandwidth
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false });
+  canvas.addEventListener("webglcontextlost", (event) => {
+    event.preventDefault();
+    canvas.classList.add("is-unavailable");
+  });
+  canvas.addEventListener("webglcontextrestored", () => window.location.reload());
   renderer.setPixelRatio(tierPixelRatio());
   // updateStyle false: the stylesheet alone places and sizes the canvas
   // (fixed, bottom-anchored, 100lvh) — setSize only allocates the buffer.
@@ -1917,7 +1992,7 @@
       if (++GOV.slow >= CONFIG.perf.downWindows && GOV.idx < order.length - 1) {
         GOV.idx++;
         GOV.slow = 0;
-        GOV.canUpgrade = false; // the ceiling is known — never bounce back up
+        GOV.canUpgrade = true; // allow recovery after transient decode or tab contention
         GOV.graceUntil = now + CONFIG.perf.grace * 1000;
         applyTier(order[GOV.idx]);
       }
@@ -2002,40 +2077,10 @@
   }
 
   requestAnimationFrame(frame);
-})();
-
-/* ---------- Scroll reveal ---------- */
-
-(function scrollReveal() {
-  const els = document.querySelectorAll(".reveal");
-  const io = new IntersectionObserver(
-    (entries) => {
-      for (const entry of entries) {
-        if (entry.isIntersecting) {
-          entry.target.classList.add("is-visible");
-          io.unobserve(entry.target);
-        }
-      }
-    },
-    { threshold: 0.12, rootMargin: "0px 0px -40px 0px" }
-  );
-  els.forEach((el) => {
-    // hero elements are on screen at load — the -40px bottom rootMargin would
-    // keep the ones hugging the viewport edge (scroll hint, coords) hidden
-    // until the first scroll, so reveal them right away instead
-    if (el.closest(".hero")) {
-      el.classList.add("is-visible");
-    } else {
-      io.observe(el);
-    }
-  });
-})();
-
-/* ---------- Nav scrolled state ---------- */
-
-(function navState() {
-  const nav = document.getElementById("nav");
-  const onScroll = () => nav.classList.toggle("is-scrolled", window.scrollY > 30);
-  window.addEventListener("scroll", onScroll, { passive: true });
-  onScroll();
+  } catch (error) {
+    console.warn("Interactive background unavailable; using static fallback:", error);
+    canvas.classList.add("is-unavailable");
+    canvas.style.background =
+      "radial-gradient(ellipse at 50% 120%, #0e2233 0%, #070b12 70%)";
+  }
 })();

@@ -2,9 +2,7 @@
   "name": "mshad.github.io",
   "private": true,
   "scripts": {
-    "dev": "live-server --host=0.0.0.0 --port=8080 --ignore=.git,.idea,node_modules"
-  },
-  "devDependencies": {
-    "live-server": "^1.2.2"
+    "dev": "node scripts/serve.mjs",
+    "check": "node --check main.js && node scripts/check-site.mjs"
   }
 }
