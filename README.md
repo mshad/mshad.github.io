@@ -21,7 +21,7 @@ This checks JavaScript syntax, duplicate HTML IDs, local file references, JSON-L
 
 ## Performance testing
 
-Use `?tier=low`, `?tier=mid`, or `?tier=high` to pin a rendering tier. Add `?fps` to show the live FPS meter.
+Desktop and fine-pointer devices stay on the high rendering tier. Touch-only devices use the adaptive governor. Use `?tier=low`, `?tier=medium`, or `?tier=high` to override the tier for testing, and add `?fps` to show the live FPS meter.
 
 ## Deployment
 

@@ -99,9 +99,9 @@
     // signals; a rolling FPS governor then steps it down under sustained
     // slowness — and back up under sustained headroom, until the first
     // downgrade proves the ceiling and locks upgrades out.
-    // Force a tier with ?tier=low|mid|high; watch it live with ?fps.
+    // Force a tier with ?tier=low|medium|high; watch it live with ?fps.
     perf: {
-      order: ["high", "mid", "low"],
+      order: ["high", "medium", "low"],
       tiers: {
         high: {
           pixelRatio: 1.5,  // cap on devicePixelRatio for every buffer
@@ -116,8 +116,8 @@
           particles: 196,   // sparkles drawn (of the allocated pool)
           fbmOctaves: 5,    // background depth-noise octaves
         },
-        mid: {
-          pixelRatio: 1.1,
+        medium: {
+          pixelRatio: 1,
           simRes: 112, dyeRes: 192, readRes: 64,
           pressureIterations: 14, viscosityIterations: 2,
           simInterval: 1,
@@ -128,11 +128,11 @@
           fbmOctaves: 4,
         },
         low: {
-          pixelRatio: 0.85,
+          pixelRatio: 0.9,
           simRes: 88, dyeRes: 144, readRes: 48,
           pressureIterations: 9, viscosityIterations: 1,
-          simInterval: 2,  // the paint updates at half rate; motion on top stays 60
-          anglerScale: 0.5,
+          simInterval: 1,
+          anglerScale: 0.75,
           anglerMsaa: 0,
           anisotropy: 2,
           particles: 90,
@@ -409,11 +409,16 @@
     // deviceMemory is Chrome-only (≤4 flags the budget-Android range that
     // needs this most) — browsers that hide it are assumed roomy
     const coarse = window.matchMedia("(pointer: coarse)").matches;
+    const hasFinePointer = window.matchMedia("(any-pointer: fine)").matches;
     const mem = navigator.deviceMemory || 8;
     const cores = navigator.hardwareConcurrency || 8;
+    // Desktops stay visually stable at high quality. `any-pointer: fine`
+    // also catches hybrid/touchscreen laptops whose primary pointer may be
+    // reported as coarse. URL overrides above remain available for testing.
+    if (!coarse || hasFinePointer) return { name: "high", locked: true };
     if (coarse && (mem <= 4 || cores <= 4)) return { name: "low", locked: false };
-    if (coarse || mem <= 4) return { name: "mid", locked: false };
-    return { name: "high", locked: false };
+    if (coarse || mem <= 4) return { name: "medium", locked: false };
+    return { name: "high", locked: true };
   })();
 
   // point CONFIG.sim at the tier's grids/iterations — the solver reads the
@@ -2021,9 +2026,8 @@
 
   const clock = new THREE.Clock();
 
-  // on low tiers the solver runs every Nth frame with the accumulated
-  // timestep — splats keep landing every frame, so strokes stay intact and
-  // only the paint's update rate drops, not the motion drawn on top of it
+  // The accumulator supports tier-specific simulation intervals, although
+  // every current tier runs at display cadence to keep input responsive.
   let simAccum = 0;
   let simSkip = 0;
 

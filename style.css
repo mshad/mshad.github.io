@@ -676,7 +676,7 @@ strong { color: var(--text); }
 }
 
 /* ---------- Performance tiers ----------
-   main.js stamps the active quality tier on <html> (tier-high / tier-mid /
+   main.js stamps the active quality tier on <html> (tier-high / tier-medium /
    tier-low — device guess plus a live FPS governor). Low tier: backdrop
    blur re-filters everything behind the nav every frame on weak mobile
    GPUs — swap it for a slightly more opaque flat backdrop instead. */
