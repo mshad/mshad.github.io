@@ -831,11 +831,28 @@
       readBuffer[i + 1] = 128;
       readBuffer[i + 3] = 255;
     }
-    const readPBO = gl.createBuffer();
-    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, readPBO);
-    gl.bufferData(gl.PIXEL_PACK_BUFFER, readBuffer.byteLength, gl.STREAM_READ);
-    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
-    let readFence = null;
+    function createReadPBO() {
+      const buffer = gl.createBuffer();
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buffer);
+      // Fence checks below control when CPU readback happens. Avoid the
+      // browser's READ-usage shadow path, which reports writes across fences.
+      gl.bufferData(gl.PIXEL_PACK_BUFFER, readBuffer.byteLength, gl.DYNAMIC_COPY);
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+      return buffer;
+    }
+    const readSlots = [
+      {
+        buffer: createReadPBO(), fence: null, sequence: 0,
+        data: new Uint8Array(readBuffer.length),
+      },
+      {
+        buffer: createReadPBO(), fence: null, sequence: 0,
+        data: new Uint8Array(readBuffer.length),
+      },
+    ];
+    let nextReadSequence = 1;
+    let latestReadSequence = 0;
+    let nextWriteSlot = 0;
 
     function decodeVel(byte) {
       const s = byte / 127.5 - 1;
@@ -924,26 +941,44 @@
       heightMat.uniforms.uDye.value = dye.read.texture;
       blit(heightMat, height);
 
-      // collect the previous frame's readback if the GPU is done with it...
-      if (readFence) {
-        const status = gl.clientWaitSync(readFence, 0, 0);
+      // Collect completed transfers before making their PBOs available again.
+      // Keep the newest completed sample if both slots finish in the same frame.
+      for (const slot of readSlots) {
+        if (!slot.fence) continue;
+        const status = gl.clientWaitSync(slot.fence, 0, 0);
         if (status === gl.ALREADY_SIGNALED || status === gl.CONDITION_SATISFIED) {
-          gl.deleteSync(readFence);
-          readFence = null;
-          gl.bindBuffer(gl.PIXEL_PACK_BUFFER, readPBO);
-          gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, readBuffer);
+          gl.deleteSync(slot.fence);
+          slot.fence = null;
+          gl.bindBuffer(gl.PIXEL_PACK_BUFFER, slot.buffer);
+          gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, slot.data);
           gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+          if (slot.sequence > latestReadSequence) {
+            latestReadSequence = slot.sequence;
+            readBuffer.set(slot.data);
+          }
         }
       }
-      // ...and kick off the next one (at most a single transfer in flight)
-      if (!readFence) {
+
+      // Submit a new transfer to a free slot. If both are still in flight,
+      // skip this sample rather than overwrite a fenced PBO.
+      let writeSlot = null;
+      for (let i = 0; i < readSlots.length; i++) {
+        const index = (nextWriteSlot + i) % readSlots.length;
+        if (!readSlots[index].fence) {
+          writeSlot = readSlots[index];
+          nextWriteSlot = (index + 1) % readSlots.length;
+          break;
+        }
+      }
+      if (writeSlot) {
         encodeMat.uniforms.uVelocity.value = velocity.read.texture;
         encodeMat.uniforms.uDye.value = dye.read.texture;
         blit(encodeMat, readback);
-        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, readPBO);
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, writeSlot.buffer);
         gl.readPixels(0, 0, readSize.w, readSize.h, gl.RGBA, gl.UNSIGNED_BYTE, 0);
         gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
-        readFence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+        writeSlot.sequence = nextReadSequence++;
+        writeSlot.fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
       }
 
       renderer.setRenderTarget(null);
@@ -967,8 +1002,10 @@
       [velocity.read, velocity.write, dye.read, dye.write,
        pressure.read, pressure.write, divergence, curl, readback, height]
         .forEach((t) => t.dispose());
-      if (readFence) gl.deleteSync(readFence);
-      gl.deleteBuffer(readPBO);
+      readSlots.forEach((slot) => {
+        if (slot.fence) gl.deleteSync(slot.fence);
+        gl.deleteBuffer(slot.buffer);
+      });
     }
 
     return {
